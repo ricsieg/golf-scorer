@@ -2,24 +2,47 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Rob's Golf Mob</title>
+<meta name="theme-color" content="#1a5c2a">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Golf Mob">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-152.png">
+<link rel="icon" type="image/png" sizes="96x96" href="icons/icon-96.png">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f0f2ec;color:#1a1a1a;min-height:100vh}
-.topbar{background:#1a5c2a;padding:13px 16px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:100;box-shadow:0 2px 8px rgba(0,0,0,0.2)}
+/* sync status bar */
+#sync-bar{display:none;position:fixed;top:0;left:0;right:0;z-index:999;padding:6px 14px;font-size:12px;font-weight:600;text-align:center;transition:all .3s}
+#sync-bar.syncing{display:block;background:#f5c842;color:#333}
+#sync-bar.synced{display:block;background:#1a5c2a;color:white}
+#sync-bar.error{display:block;background:#a32d2d;color:white}
+/* live indicator dot */
+.live-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#4caf50;margin-right:5px;animation:pulse 1.5s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.topbar{background:#1a5c2a;padding:13px 16px;padding-top:max(13px,env(safe-area-inset-top));display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:100;box-shadow:0 2px 8px rgba(0,0,0,0.2)}
 .topbar-logo{width:40px;height:40px;border-radius:50%;background:#f5c842;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0}
 .topbar h1{font-size:17px;font-weight:700;color:white;letter-spacing:-.3px}
 .topbar p{font-size:11px;color:rgba(255,255,255,0.7);margin-top:1px}
-.nav{display:flex;background:white;border-bottom:1px solid #e0e0e0;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+#conn-status{font-size:10px;margin-left:auto;padding:3px 8px;border-radius:10px;font-weight:600;flex-shrink:0}
+#conn-status.online{background:rgba(255,255,255,0.2);color:white}
+#conn-status.offline{background:#a32d2d;color:white}
+.nav{display:flex;background:white;border-bottom:1px solid #e0e0e0;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;position:sticky;top:66px;z-index:99}
 .nav::-webkit-scrollbar{display:none}
-.nav-btn{flex:1;min-width:64px;padding:12px 6px;font-size:11px;font-weight:600;color:#888;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap;letter-spacing:.01em}
+.nav-btn{flex:1;min-width:64px;padding:12px 6px;font-size:11px;font-weight:600;color:#888;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap}
 .nav-btn.active{color:#1a5c2a;border-bottom-color:#1a5c2a}
-.page{display:none;padding:12px 12px 90px}.page.on{display:block}
+.page{display:none;padding:12px 12px 100px}.page.on{display:block}
 .card{background:white;border-radius:12px;padding:14px 16px;margin-bottom:12px;box-shadow:0 1px 3px rgba(0,0,0,0.06)}
 .ct{font-size:10px;font-weight:700;color:#aaa;text-transform:uppercase;letter-spacing:.07em;margin-bottom:11px}
+/* round selector */
+.round-selector{display:flex;gap:8px;margin-bottom:12px;align-items:center}
+.round-selector select{flex:1;padding:9px 11px;font-size:14px;border:1px solid #ddd;border-radius:8px;background:white;color:#1a1a1a;-webkit-appearance:none}
+/* courses */
 .course-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px}
-.course-btn{padding:10px 6px;border:1.5px solid #e0e0e0;border-radius:10px;background:white;cursor:pointer;text-align:center;-webkit-tap-highlight-color:transparent;transition:all .15s}
+.course-btn{padding:10px 6px;border:1.5px solid #e0e0e0;border-radius:10px;background:white;cursor:pointer;text-align:center;-webkit-tap-highlight-color:transparent}
 .course-btn.sel{border-color:#1a5c2a;background:#f0f9f2}
 .c-name{font-size:11px;font-weight:700;color:#1a1a1a}
 .c-sub{font-size:10px;color:#aaa;margin-top:2px}
@@ -29,8 +52,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .form-group label{font-size:11px;color:#888;font-weight:600;letter-spacing:.02em}
 .form-group input,.form-group select{width:100%;padding:9px 11px;font-size:14px;border:1px solid #ddd;border-radius:8px;background:white;color:#1a1a1a;-webkit-appearance:none}
 .form-group input:focus,.form-group select:focus{outline:2px solid #1a5c2a;border-color:transparent}
+/* players */
 .players-list{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
 .player-entry{display:flex;align-items:center;gap:8px;padding:9px 11px;background:#f8f8f8;border-radius:8px}
+.move-btns{display:flex;flex-direction:column;gap:2px;flex-shrink:0}
+.move-btn{background:none;border:1px solid #e0e0e0;border-radius:4px;cursor:pointer;color:#aaa;font-size:12px;padding:1px 5px;line-height:1.4;-webkit-tap-highlight-color:transparent}
+.move-btn:active{background:#f0f0f0}
+.move-btn:disabled{opacity:.25;cursor:default}
 .p-avatar{width:34px;height:34px;border-radius:50%;background:#1a5c2a;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:white;flex-shrink:0}
 .p-name{flex:1;font-size:14px;font-weight:500}
 .p-hcp{font-size:12px;color:#aaa}
@@ -40,48 +68,38 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .add-row input{padding:9px 11px;font-size:14px;border:1px solid #ddd;border-radius:8px;color:#1a1a1a}
 .add-row input.nm{flex:2}
 .add-row input.hc{flex:0.8}
-.btn{padding:10px 18px;font-size:14px;font-weight:700;border-radius:9px;cursor:pointer;border:none;-webkit-tap-highlight-color:transparent;letter-spacing:-.2px}
+.btn{padding:10px 18px;font-size:14px;font-weight:700;border-radius:9px;cursor:pointer;border:none;-webkit-tap-highlight-color:transparent}
 .btn-green{background:#1a5c2a;color:white}
 .btn-green:active{background:#144a21}
 .btn-outline{background:white;border:1.5px solid #ddd;color:#1a1a1a}
 .btn-sm{padding:8px 14px;font-size:12px}
 .btn-full{width:100%;padding:13px;font-size:15px}
-
-/* scorecard */
+/* scorecard sticky first col */
 .sc-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;border-radius:8px;border:1px solid #eee}
 table.sc{border-collapse:separate;border-spacing:0;font-size:11px;min-width:100%}
-/* sticky first column */
-table.sc th:first-child,
-table.sc td:first-child{
-  position:sticky;left:0;z-index:2;
-  min-width:80px;max-width:80px;width:80px;
-  border-right:2px solid #c8e6c9;
-}
-table.sc th:first-child{background:#1a5c2a;z-index:3}
-table.sc .nine-hdr th:first-child{background:#2d7a3a}
-table.sc .si-row th:first-child{background:#3a8a48}
-table.sc .subtot td:first-child{background:#f0faf0}
-table.sc .pts-row td:first-child{background:#f5fff5}
-table.sc tr:hover td:first-child{background:#f0faf0}
-/* all other header/cell styles */
+table.sc th:first-child,table.sc td:first-child{position:sticky;left:0;z-index:2;min-width:80px;max-width:80px;width:80px;border-right:2px solid #c8e6c9}
+table.sc th:first-child{z-index:3}
 table.sc th{background:#1a5c2a;color:white;padding:6px 5px;text-align:center;font-weight:600;font-size:10px;white-space:nowrap}
 table.sc th.lft{text-align:left;padding-left:8px}
 table.sc td{padding:5px 4px;text-align:center;border-bottom:1px solid #f0f0f0;font-size:11px;background:white}
 table.sc td.lft{text-align:left;padding-left:8px;font-weight:600;font-size:10px;color:#444;background:white}
 table.sc tr:hover td{background:#fafff8}
-table.sc .nine-hdr th{background:#2d7a3a}
-table.sc .si-row th{background:#3a8a48;font-weight:400;font-size:9px}
+table.sc tr:hover td:first-child{background:#f0faf0}
+table.sc .nhdr th{background:#2d7a3a}.table.sc .nhdr th:first-child{background:#2d7a3a}
+table.sc .sirow th{background:#3a8a48;font-weight:400;font-size:9px}
+table.sc .sirow th:first-child{background:#3a8a48}
 table.sc .subtot td{background:#f0faf0;font-weight:700;border-top:1px solid #ddd;color:#1a5c2a}
-table.sc .grandtot td{background:#e8f5ea;font-weight:700;border-top:2px solid #1a5c2a}
-table.sc .pts-row td{font-size:10px;color:#1a5c2a;background:#f8fff8}
-.score-input{width:32px;padding:3px 2px;text-align:center;border:1px solid #ddd;border-radius:5px;font-size:12px;color:#1a1a1a;background:white}
+table.sc .subtot td:first-child{background:#f0faf0}
+table.sc .ptsrow td{font-size:10px;color:#1a5c2a;background:#f8fff8}
+table.sc .ptsrow td:first-child{background:#f8fff8}
+/* remote score highlight */
+.score-input{width:32px;padding:3px 2px;text-align:center;border:1px solid #ddd;border-radius:5px;font-size:12px;color:#1a1a1a;background:white;transition:background .4s}
 .score-input:focus{outline:2px solid #1a5c2a;border-color:transparent}
-/* move up/down buttons */
-.move-btns{display:flex;flex-direction:column;gap:2px;flex-shrink:0}
-.move-btn{background:none;border:1px solid #e0e0e0;border-radius:4px;cursor:pointer;color:#aaa;font-size:12px;padding:1px 5px;line-height:1.4;-webkit-tap-highlight-color:transparent}
-.move-btn:active{background:#f0f0f0}
-.move-btn:disabled{opacity:.25;cursor:default}
-
+.score-input.remote-update{background:#fff9c4!important;animation:flash .6s ease}
+@keyframes flash{0%{background:#f5c842}100%{background:#fff9c4}}
+.nine-tabs{display:flex;gap:6px;margin-bottom:10px}
+.nine-tab{flex:1;padding:8px;font-size:12px;font-weight:700;border:1.5px solid #ddd;border-radius:8px;background:white;color:#888;cursor:pointer;text-align:center}
+.nine-tab.on{background:#1a5c2a;color:white;border-color:#1a5c2a}
 /* leaderboard */
 .winner-banner{background:linear-gradient(135deg,#1a5c2a,#2d8a42);border-radius:12px;padding:14px 16px;margin-bottom:12px;display:flex;align-items:center;gap:12px}
 .w-name{font-size:18px;font-weight:700;color:white}
@@ -94,21 +112,12 @@ table.sc .pts-row td{font-size:10px;color:#1a5c2a;background:#f8fff8}
 .lb-right{text-align:right;flex-shrink:0}
 .lb-score{font-size:20px;font-weight:700;color:#1a1a1a}
 .pill{display:inline-block;padding:3px 9px;border-radius:12px;font-size:11px;font-weight:700;margin-top:3px}
-.pu{background:#e8f5ea;color:#1a5c2a}
-.po{background:#fee2e2;color:#a32d2d}
-.pe{background:#f0f0f0;color:#888}
+.pu{background:#e8f5ea;color:#1a5c2a}.po{background:#fee2e2;color:#a32d2d}.pe{background:#f0f0f0;color:#888}
 .fmt-row{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap}
 .fmt-btn{padding:7px 12px;font-size:12px;font-weight:600;border:1.5px solid #ddd;border-radius:8px;background:white;color:#888;cursor:pointer}
 .fmt-btn.on{background:#1a5c2a;color:white;border-color:#1a5c2a}
-
-/* nine selector */
-.nine-tabs{display:flex;gap:6px;margin-bottom:10px}
-.nine-tab{flex:1;padding:8px;font-size:12px;font-weight:700;border:1.5px solid #ddd;border-radius:8px;background:white;color:#888;cursor:pointer;text-align:center}
-.nine-tab.on{background:#1a5c2a;color:white;border-color:#1a5c2a}
-
-/* hcp cards */
-.hcp-card{border:1px solid #eee;border-radius:10px;padding:12px 14px;margin-bottom:10px;transition:border-color .2s}
-.hcp-card.live{border-color:#f5c842;border-width:2px}
+/* hcp */
+.hcp-card{border:1px solid #eee;border-radius:10px;padding:12px 14px;margin-bottom:10px}
 .hcp-card.improved{border-color:#1a5c2a}
 .hcp-top{display:flex;align-items:center;gap:10px;margin-bottom:10px}
 .hcp-avatar{width:38px;height:38px;border-radius:50%;background:#1a5c2a;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:white;flex-shrink:0}
@@ -120,34 +129,32 @@ table.sc .pts-row td{font-size:10px;color:#1a5c2a;background:#f8fff8}
 .ms-lbl{font-size:9px;color:#aaa;margin-top:1px}
 .diffs{display:flex;gap:4px;flex-wrap:wrap}
 .dp{padding:3px 7px;border-radius:8px;font-size:11px;font-weight:600}
-.dp-used{background:#e8f5ea;color:#1a5c2a}
-.dp-now{background:#fef3db;color:#7a4f00;border:1px solid #f5c842}
-.dp-unused{background:#f0f0f0;color:#aaa}
+.dp-used{background:#e8f5ea;color:#1a5c2a}.dp-unused{background:#f0f0f0;color:#aaa}
 .chg-badge{display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:8px;font-size:11px;font-weight:700}
-.ci{background:#e8f5ea;color:#1a5c2a}
-.cw{background:#fee2e2;color:#a32d2d}
-.cs{background:#f0f0f0;color:#888}
+.ci{background:#e8f5ea;color:#1a5c2a}.cw{background:#fee2e2;color:#a32d2d}.cs{background:#f0f0f0;color:#888}
 .stat-grid2{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:12px}
 .sg{background:#f8f8f8;border-radius:9px;padding:12px;text-align:center}
 .sg-val{font-size:22px;font-weight:700;color:#1a1a1a}
 .sg-lbl{font-size:11px;color:#aaa;margin-top:2px}
 .comp-tbl{width:100%;border-collapse:collapse;font-size:12px}
-.comp-tbl th{padding:8px 8px;text-align:left;font-size:10px;font-weight:700;color:#aaa;border-bottom:1px solid #eee;letter-spacing:.04em;text-transform:uppercase}
+.comp-tbl th{padding:8px;text-align:left;font-size:10px;font-weight:700;color:#aaa;border-bottom:1px solid #eee;text-transform:uppercase;letter-spacing:.04em}
 .comp-tbl th:not(:first-child){text-align:center}
 .comp-tbl td{padding:9px 8px;border-bottom:1px solid #f5f5f5;color:#1a1a1a}
 .comp-tbl td:not(:first-child){text-align:center}
 .hist-row{display:flex;align-items:flex-start;gap:10px;padding:11px 0;border-bottom:1px solid #f5f5f5}
 .badge-c{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600}
-.bg{background:#e8f5ea;color:#1a5c2a}
-.bm{background:#e8f0fb;color:#1855a5}
-.bd{background:#fef3db;color:#7a4f00}
+.bg{background:#e8f5ea;color:#1a5c2a}.bm{background:#e8f0fb;color:#1855a5}.bd{background:#fef3db;color:#7a4f00}
 .note{font-size:11px;color:#aaa;font-style:italic;margin-top:8px;line-height:1.5}
 .alert-info{background:#e8f0fb;color:#1855a5;padding:10px 13px;border-radius:8px;font-size:12px;margin-bottom:12px;line-height:1.5}
 .empty{text-align:center;padding:2.5rem;color:#ccc;font-size:14px}
 .live-badge{display:inline-block;background:#f5c842;color:#333;font-size:10px;font-weight:700;padding:2px 7px;border-radius:8px;margin-left:6px;vertical-align:middle}
+.join-banner{background:#e8f5ea;border:1.5px solid #1a5c2a;border-radius:10px;padding:12px 14px;margin-bottom:12px;font-size:13px;color:#1a5c2a;font-weight:600}
+.join-banner span{font-size:11px;font-weight:400;color:#555;display:block;margin-top:3px}
 </style>
 </head>
 <body>
+
+<div id="sync-bar">Syncing scores...</div>
 
 <div class="topbar">
   <div class="topbar-logo">⛳</div>
@@ -155,6 +162,7 @@ table.sc .pts-row td{font-size:10px;color:#1a5c2a;background:#f8fff8}
     <h1>Rob's Golf Mob</h1>
     <p id="topbar-sub">Melbourne Social Golf</p>
   </div>
+  <div id="conn-status" class="offline">Offline</div>
 </div>
 
 <div class="nav">
@@ -165,8 +173,14 @@ table.sc .pts-row td{font-size:10px;color:#1a5c2a;background:#f8fff8}
   <button class="nav-btn" onclick="sw('history')">History</button>
 </div>
 
-<!-- ===== SETUP ===== -->
+<!-- SETUP -->
 <div class="page on" id="page-setup">
+  <div class="card" id="active-round-banner" style="display:none">
+    <div class="join-banner" id="join-info">
+      <span id="join-text"></span>
+    </div>
+    <button class="btn btn-green btn-full" onclick="joinActiveRound()" id="join-btn">📡 Join live round</button>
+  </div>
   <div class="card">
     <div class="ct">Course</div>
     <div class="course-grid">
@@ -202,9 +216,8 @@ table.sc .pts-row td{font-size:10px;color:#1a5c2a;background:#f8fff8}
       </select>
     </div>
   </div>
-
   <div class="card">
-    <div class="ct">Players</div>
+    <div class="ct">Players — tap ▲▼ to reorder</div>
     <div class="players-list" id="players-list"></div>
     <div class="add-row">
       <input class="nm" type="text" id="new-name" placeholder="Player name" onkeydown="if(event.key==='Enter')addPlayer()">
@@ -212,11 +225,10 @@ table.sc .pts-row td{font-size:10px;color:#1a5c2a;background:#f8fff8}
       <button class="btn btn-outline btn-sm" onclick="addPlayer()">+ Add</button>
     </div>
   </div>
-
-  <button class="btn btn-green btn-full" onclick="startRound()">⛳ Start round</button>
+  <button class="btn btn-green btn-full" onclick="startRound()">⛳ Start round + go live</button>
 </div>
 
-<!-- ===== SCORING ===== -->
+<!-- SCORING -->
 <div class="page" id="page-scoring">
   <div class="card" id="sc-info" style="display:none">
     <div style="display:flex;justify-content:space-between;align-items:center">
@@ -224,65 +236,61 @@ table.sc .pts-row td{font-size:10px;color:#1a5c2a;background:#f8fff8}
         <div style="font-size:15px;font-weight:700" id="sc-title"></div>
         <div style="font-size:12px;color:#aaa;margin-top:2px" id="sc-sub"></div>
       </div>
-      <div style="font-size:12px;color:#aaa" id="sc-date"></div>
+      <div style="font-size:11px;color:#1a5c2a;font-weight:600" id="sc-live-label"></div>
     </div>
   </div>
-
-  <!-- nine selector shown only for 18-hole rounds -->
-  <div id="nine-selector" style="display:none" class="card" style="padding:10px 14px">
+  <div id="nine-selector" style="display:none" class="card">
     <div class="ct">Viewing</div>
     <div class="nine-tabs">
-      <div class="nine-tab on" id="nt-front" onclick="setNineView('front')">Front 9 (1–9)</div>
-      <div class="nine-tab" id="nt-back" onclick="setNineView('back')">Back 9 (10–18)</div>
-      <div class="nine-tab" id="nt-all" onclick="setNineView('all')">All 18</div>
+      <div class="nine-tab on" id="nt-front" onclick="setNV('front')">Front 9 (1–9)</div>
+      <div class="nine-tab" id="nt-back"  onclick="setNV('back')">Back 9 (10–18)</div>
+      <div class="nine-tab" id="nt-all"   onclick="setNV('all')">All 18</div>
     </div>
   </div>
-
   <div class="card">
-    <div class="ct">Hole by hole scores</div>
-    <div class="sc-wrap"><table class="sc" id="main-sc" style="width:100%"><tbody id="sc-body"></tbody></table></div>
-    <p class="note" id="sf-note" style="display:none">Stableford: eagle=4pts, birdie=3pts, par=2pts, bogey=1pt, double+=0pts (net).</p>
+    <div class="ct">Scores — player name stays fixed when scrolling →</div>
+    <div class="sc-wrap">
+      <table class="sc" style="width:100%"><tbody id="sc-body"></tbody></table>
+    </div>
+    <p class="note" id="sf-note" style="display:none">Stableford: eagle=4pts, birdie=3pts, par=2pts, bogey=1pt, double bogey+=0pts (net).</p>
   </div>
-
-  <!-- live hcp strip -->
   <div class="card" id="live-hcp-strip" style="display:none">
     <div class="ct">Live handicaps <span class="live-badge">LIVE</span></div>
     <div id="live-hcp-body"></div>
   </div>
-
   <div style="display:flex;gap:8px">
     <button class="btn btn-green btn-full" onclick="sw('results');renderResults()">View results →</button>
     <button class="btn btn-outline btn-sm" onclick="resetScores()">Reset</button>
   </div>
 </div>
 
-<!-- ===== RESULTS ===== -->
+<!-- RESULTS -->
 <div class="page" id="page-results">
   <div id="winner-wrap"></div>
   <div class="card">
-    <div class="ct">Leaderboard</div>
+    <div class="ct">Leaderboard <span class="live-badge" id="lb-live-badge" style="display:none"><span class="live-dot"></span>LIVE</span></div>
     <div class="fmt-row">
-      <div class="fmt-btn on" id="fmt-stroke" onclick="setFmt('stroke')">Net stroke</div>
-      <div class="fmt-btn" id="fmt-stableford" onclick="setFmt('stableford')">Stableford</div>
-      <div class="fmt-btn" id="fmt-gross" onclick="setFmt('gross')">Gross</div>
+      <div class="fmt-btn on" id="fmt-stroke"    onclick="setFmt('stroke')">Net stroke</div>
+      <div class="fmt-btn"   id="fmt-stableford" onclick="setFmt('stableford')">Stableford</div>
+      <div class="fmt-btn"   id="fmt-gross"      onclick="setFmt('gross')">Gross</div>
     </div>
     <div id="lb-body"></div>
   </div>
   <div style="display:flex;gap:8px;margin-top:4px">
-    <button class="btn btn-green btn-sm" onclick="saveHistory()">💾 Save round</button>
+    <button class="btn btn-green btn-sm" id="save-btn" onclick="saveHistory()">💾 Save round</button>
     <button class="btn btn-outline btn-sm" onclick="sw('scoring')">← Back</button>
   </div>
 </div>
 
-<!-- ===== HANDICAPS ===== -->
+<!-- HANDICAPS -->
 <div class="page" id="page-handicap">
-  <div class="alert-info" id="hcp-alert">Handicap indexes calculated from all recorded rounds using WHS methodology for 9-hole play.</div>
+  <div class="alert-info">Handicap indexes calculated from all recorded rounds using WHS methodology for 9-hole play.</div>
   <div class="card">
-    <div class="ct">Current handicap indexes <span id="hcp-live-badge" style="display:none" class="live-badge">UPDATED LIVE</span></div>
+    <div class="ct">Handicap indexes <span id="hcp-live-badge" style="display:none" class="live-badge">UPDATED LIVE</span></div>
     <div id="hcp-cards"></div>
   </div>
   <div class="card">
-    <div class="ct">Summary comparison</div>
+    <div class="ct">Summary</div>
     <div class="stat-grid2" id="hcp-summary"></div>
     <table class="comp-tbl" id="hcp-comp"></table>
   </div>
@@ -321,752 +329,728 @@ table.sc .pts-row td{font-size:10px;color:#1a5c2a;background:#f8fff8}
   </div>
 </div>
 
-<!-- ===== HISTORY ===== -->
+<!-- HISTORY -->
 <div class="page" id="page-history">
   <div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
       <div class="ct" style="margin-bottom:0">Past rounds</div>
-      <button class="btn btn-outline btn-sm" onclick="clearHistory()">🗑 Clear all</button>
+      <button class="btn btn-outline btn-sm" onclick="clearHistory()">🗑 Clear</button>
     </div>
     <div id="hist-body"></div>
   </div>
 </div>
 
-<script>
-// ─── COURSE DATA ───────────────────────────────────────────────────────────────
-// Each course has full 18-hole par and stroke index arrays.
-// Front 9 = indices 0–8, Back 9 = indices 9–17.
+<!-- Firebase SDK -->
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getDatabase, ref, set, onValue, off, push, serverTimestamp, onDisconnect, get }
+  from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyA9fvyWyPduwJ55KQAZE4zc-JLzYpzCWvI",
+  authDomain: "robs-golf-mob.firebaseapp.com",
+  projectId: "robs-golf-mob",
+  storageBucket: "robs-golf-mob.firebasestorage.app",
+  messagingSenderId: "280289600336",
+  appId: "1:280289600336:web:fb4037a43a2a41f6598255",
+  databaseURL: "https://robs-golf-mob-default-rtdb.asia-southeast1.firebasedatabase.app"
+};
+
+const fbApp = initializeApp(firebaseConfig);
+const db    = getDatabase(fbApp);
+
+// ── COURSE DATA ────────────────────────────────────────────────────────────────
 const COURSES = {
   gardiners: {
     name: 'Gardiners Run',
-    par:  [4,3,4,4,5,3,4,4,5, 4,3,4,4,5,3,4,4,5],
-    si:   [5,17,9,1,13,15,3,11,7, 6,18,10,2,14,16,4,12,8],
-    r9: 33.5, s9: 112,
-    r18: 67.0, s18: 112
+    // Verified pars: H1-H9 front, H10-H18 back
+    par: [4,5,3,4,4,4,3,5,4, 5,3,4,4,4,4,3,4,4],
+    // Official mens SI — front 9: H1=3,H2=11,H3=15,H4=5,H5=18,H6=1,H7=6,H8=13,H9=7
+    // Official mens SI — back 9:  H10=8,H11=3,H12=2,H13=10,H14=6,H15=17,H16=14,H17=16,H18=4
+    si:  [3,11,15,5,18,1,9,13,7, 8,12,2,10,6,17,14,16,4],
+    r9:35.0, s9:125, r18:70.0, s18:125
   },
   morack: {
     name: 'Morack Golf',
-    par:  [5,4,3,4,5,3,4,4,4, 5,4,3,4,5,3,4,4,4],
-    si:   [3,15,17,9,1,13,7,5,11, 4,16,18,10,2,14,8,6,12],
-    r9: 34.0, s9: 116,
-    r18: 68.0, s18: 116
+    par: [5,4,3,4,5,3,4,4,4, 5,4,3,4,5,3,4,4,4],
+    si:  [3,15,17,9,1,13,7,5,11, 4,16,18,10,2,14,8,6,12],
+    r9:34.0, s9:116, r18:68.0, s18:116
   },
   dorset: {
     name: 'Dorset Golf',
-    par:  [4,4,3,5,4,3,4,5,4, 4,4,3,5,4,3,4,5,4],
-    si:   [4,10,16,6,2,18,12,3,14, 5,11,17,7,1,15,9,4,13],
-    r9: 33.0, s9: 110,
-    r18: 66.0, s18: 110
+    par: [4,4,3,5,4,3,4,5,4, 4,4,3,5,4,3,4,5,4],
+    si:  [4,10,16,6,2,18,12,3,14, 5,11,17,7,1,15,9,4,13],
+    r9:33.0, s9:110, r18:66.0, s18:110
   }
 };
 
-// ─── HISTORICAL MOB SCORES ─────────────────────────────────────────────────────
-// scores = 9-hole gross totals from past rounds
+// ── MOB HISTORICAL SCORES ──────────────────────────────────────────────────────
 const MOB_HISTORY = {
-  'Rob':     [65,55,64,59,59,57,51,54,59,59],
-  'Jeff':    [56,60,52,52,54,56],
-  'Bram':    [65,62,53,61,59,66],
-  'Richard': [56,47,55,48,57,51,50,56],
-  'Gerry':   [60,60,57,63,57,65,56],
-  'Peter':   [56,55,55,57,55,51,57,64,52,57],
-  'Corey':   [52,47,48,46,46,42,53,47,47],
-  'Gerard':  [51,44,49,45,47,51]
+  'Rob':    [65,55,64,59,59,57,51,54,59,59],
+  'Jeff':   [56,60,52,52,54,56],
+  'Bram':   [65,62,53,61,59,66],
+  'Richard':[56,47,55,48,57,51,50,56],
+  'Gerry':  [60,60,57,63,57,65,56],
+  'Peter':  [56,55,55,57,55,51,57,64,52,57],
+  'Corey':  [52,47,48,46,46,42,53,47,47],
+  'Gerard': [51,44,49,45,47,51]
 };
 const MOB_OLD_HCP = {
   'Rob':6.1,'Jeff':5.6,'Bram':6.3,'Richard':5.7,
   'Gerry':5.6,'Peter':7.0,'Corey':5.1,'Gerard':4.9
 };
 
-// ─── WHS HANDICAP ENGINE ───────────────────────────────────────────────────────
-function scoreDiff9(gross, r, s) {
-  return parseFloat(((gross - r) * (113 / s) * 2).toFixed(2));
-}
-function numBest(n) {
-  if(n<=4) return 1; if(n<=6) return 2; if(n<=8) return 3;
-  if(n<=10) return 4; if(n<=12) return 5; if(n<=14) return 6;
-  if(n<=16) return 7; if(n<=18) return 8; return 10;
-}
-function calcHcpFromScores(scores, r, s) {
-  if(!scores.length) return {idx:0, ph:0, diffs:[], best:[], n:0};
-  const diffs = scores.map(g => scoreDiff9(g, r, s));
-  const sorted = [...diffs].sort((a,b)=>a-b);
-  const n = numBest(scores.length);
-  const best = sorted.slice(0, n);
-  const idx = parseFloat((best.reduce((a,b)=>a+b,0)/best.length * 0.96).toFixed(1));
-  const ph = Math.round(idx * (s/113) * 0.5 + (r - scores.reduce((_,__,i,arr)=>0,0)));
-  return {idx, diffs, sorted, n, best};
-}
-function playHcp(idx, slope, rating, par) {
-  return Math.round(idx * (slope/113) * 0.5 + (rating - par));
-}
-
-// ─── APP STATE ─────────────────────────────────────────────────────────────────
-let ST = {
-  course: 'gardiners',
-  holeMode: '9f',   // '9f' | '9b' | '18'
-  holes: [],        // array of hole indices into COURSES (0-based)
-  date: '',
-  format: 'stroke',
-  players: [],      // [{name, hcp, liveHcp}]
-  scores: {},       // {name: [score|'' per hole]}
-  totals: {},       // {name: manualTotal|''} — overrides hole sum when set
-  history: JSON.parse(localStorage.getItem('rgm_h2') || '[]'),
-  nineView: 'front' // for 18-hole display
-};
-let resFmt = 'stroke';
-
-// ─── INIT ──────────────────────────────────────────────────────────────────────
-function init() {
-  document.getElementById('round-date').value = new Date().toISOString().split('T')[0];
-  // Seed mob players
-  Object.keys(MOB_HISTORY).forEach(name => {
-    const h = computeLiveHcp(name, null);
-    ST.players.push({name, hcp: MOB_OLD_HCP[name]||0, liveHcp: h.idx});
-  });
-  renderPlayers();
-  renderHcp();
-  renderHist();
-}
-
-// Compute live handicap for a player given their historical scores + optional new 9-hole gross
-function computeLiveHcp(name, newGross) {
+// ── WHS ENGINE ────────────────────────────────────────────────────────────────
+function diff9(g,r,s){return parseFloat(((g-r)*(113/s)*2).toFixed(2))}
+function numBest(n){return n<=4?1:n<=6?2:n<=8?3:n<=10?4:n<=12?5:n<=14?6:n<=16?7:n<=18?8:10}
+function calcPlayHcp(idx,s,r,par){return Math.round(idx*(s/113)*0.5+(r-par))}
+function computeLiveHcp(name, newGross){
   const c = COURSES[ST.course];
-  const hist = [...(MOB_HISTORY[name] || [])];
-  // Add any new gross from current round if complete
-  if(newGross !== null && newGross > 0) hist.push(newGross);
-  const r = c.r9, s = c.s9;
-  const diffs = hist.map(g => scoreDiff9(g, r, s));
+  const hist = [...(MOB_HISTORY[name]||[])];
+  if(newGross!==null && newGross>0) hist.push(newGross);
+  const r=c.r9, s=c.s9;
+  const diffs = hist.map(g=>diff9(g,r,s));
   const sorted = [...diffs].sort((a,b)=>a-b);
   const n = numBest(hist.length);
-  const best = sorted.slice(0, n);
-  const idx = hist.length ? parseFloat((best.reduce((a,b)=>a+b,0)/best.length * 0.96).toFixed(1)) : (MOB_OLD_HCP[name]||0);
+  const best = sorted.slice(0,n);
+  const idx = hist.length ? parseFloat((best.reduce((a,b)=>a+b,0)/best.length*0.96).toFixed(1)) : (MOB_OLD_HCP[name]||0);
   const par9 = c.par.slice(0,9).reduce((a,b)=>a+b,0);
-  const ph = playHcp(idx, s, r, par9);
-  return {idx, ph, diffs, best, n, histScores: hist, isNew: newGross !== null && newGross > 0};
+  return {idx, ph:calcPlayHcp(idx,s,r,par9), diffs, best, n, hist};
 }
 
-// ─── SETUP ─────────────────────────────────────────────────────────────────────
+// ── STATE ─────────────────────────────────────────────────────────────────────
+let ST = {
+  course:'gardiners', holeMode:'9f', holes:[], date:'', format:'stroke',
+  players:[], scores:{}, totals:{}, saved:false, nineView:'front',
+  roundId:null,        // Firebase round key
+  isHost:false,        // true if this device created the round
+  fbListener:null,     // active Firebase listener ref
+  history: JSON.parse(localStorage.getItem('rgm_h3')||'[]')
+};
+let resFmtLocal = 'stroke';
+
+// ── SYNC HELPERS ──────────────────────────────────────────────────────────────
+function showSync(state, msg) {
+  const bar = document.getElementById('sync-bar');
+  bar.className = state; bar.textContent = msg;
+  if(state==='synced') setTimeout(()=>{ bar.style.display='none'; }, 2000);
+}
+
+async function pushToFirebase() {
+  if(!ST.roundId) return;
+  try {
+    showSync('syncing','Syncing scores...');
+    await set(ref(db, `rounds/${ST.roundId}/scores`), ST.scores);
+    await set(ref(db, `rounds/${ST.roundId}/totals`), ST.totals);
+    showSync('synced','✓ Scores synced');
+  } catch(e) {
+    showSync('error','Sync failed — scores saved locally');
+  }
+}
+
+function subscribeToRound(roundId) {
+  // Detach any previous listener
+  if(ST.fbListener) { off(ST.fbListener); ST.fbListener=null; }
+  const roundRef = ref(db, `rounds/${roundId}`);
+  ST.fbListener = roundRef;
+  onValue(roundRef, snap => {
+    const data = snap.val();
+    if(!data) return;
+    let changed = false;
+    // Merge remote scores — only update cells this device didn't just change
+    if(data.scores) {
+      Object.keys(data.scores).forEach(name => {
+        if(!ST.scores[name]) ST.scores[name] = new Array(ST.holes.length).fill('');
+        data.scores[name].forEach((val, li) => {
+          if(val !== ST.scores[name][li]) {
+            ST.scores[name][li] = val;
+            changed = true;
+            // Flash the cell yellow to show remote update
+            const sid = name.replace(/\s/g,'_');
+            const input = document.querySelector(`input[aria-label="Hole ${ST.holes[li]+1} score for ${name}"]`);
+            if(input && document.activeElement !== input) {
+              input.value = val || '';
+              input.classList.add('remote-update');
+              setTimeout(()=>input.classList.remove('remote-update'), 800);
+              hlS(input, COURSES[ST.course].par[ST.holes[li]]);
+            }
+          }
+        });
+      });
+    }
+    if(data.totals) {
+      Object.keys(data.totals).forEach(name => {
+        if(data.totals[name] !== ST.totals[name]) {
+          ST.totals[name] = data.totals[name];
+          changed = true;
+        }
+      });
+    }
+    if(changed) { updTotals(); updLiveHcp(); renderResults(); }
+    // Show live badge on results tab
+    document.getElementById('lb-live-badge').style.display = 'inline';
+  });
+}
+
+// Check if there's an active round in Firebase today
+async function checkActiveRound() {
+  try {
+    const snap = await get(ref(db, 'activeRound'));
+    const data = snap.val();
+    if(!data) return;
+    const today = new Date().toISOString().split('T')[0];
+    if(data.date === today && data.roundId) {
+      const banner = document.getElementById('active-round-banner');
+      document.getElementById('join-text').textContent =
+        `Active round: ${COURSES[data.course]?.name||data.course} · ${data.date} · ${data.playerCount||'?'} players`;
+      banner.style.display = 'block';
+      window._pendingRoundId = data.roundId;
+      window._pendingRoundMeta = data;
+    }
+  } catch(e) {}
+}
+
+async function joinActiveRound() {
+  const id = window._pendingRoundId;
+  const meta = window._pendingRoundMeta;
+  if(!id || !meta) return;
+  try {
+    const snap = await get(ref(db, `rounds/${id}`));
+    const data = snap.val();
+    if(!data) { alert('Round no longer available'); return; }
+    // Load round config from Firebase
+    ST.roundId = id;
+    ST.isHost = false;
+    ST.course = meta.course || 'gardiners';
+    ST.holeMode = meta.holeMode || '9f';
+    ST.format = meta.format || 'stroke';
+    ST.date = meta.date || '';
+    ST.holes = resolveHolesFor(ST.holeMode);
+    ST.players = meta.players || [];
+    ST.scores = {};
+    ST.totals = {};
+    ST.saved = false;
+    ST.players.forEach(p => {
+      ST.scores[p.name] = data.scores?.[p.name] || new Array(ST.holes.length).fill('');
+      ST.totals[p.name] = data.totals?.[p.name] || '';
+    });
+    // Sync course selector UI
+    selCourse(ST.course);
+    document.getElementById('active-round-banner').style.display='none';
+    buildSC();
+    subscribeToRound(id);
+    sw('scoring');
+    document.getElementById('sc-live-label').innerHTML = '<span class="live-dot"></span> Live sync on';
+  } catch(e) { alert('Could not join round: ' + e.message); }
+}
+
+// ── INIT ──────────────────────────────────────────────────────────────────────
+function init() {
+  document.getElementById('round-date').value = new Date().toISOString().split('T')[0];
+  Object.keys(MOB_HISTORY).forEach(name => {
+    const h = computeLiveHcp(name, null);
+    ST.players.push({name, hcp:MOB_OLD_HCP[name]||0, liveHcp:h.idx});
+  });
+  renderPlayers(); renderHcp(); renderHist();
+  // Check Firebase connection status
+  onValue(ref(db, '.info/connected'), snap => {
+    const el = document.getElementById('conn-status');
+    if(snap.val()) { el.textContent='🟢 Live'; el.className='online'; }
+    else           { el.textContent='Offline'; el.className='offline'; }
+  });
+  checkActiveRound();
+}
+
+// ── NAV ───────────────────────────────────────────────────────────────────────
 function sw(tab) {
-  const tabs = ['setup','scoring','results','handicap','history'];
-  document.querySelectorAll('.nav-btn').forEach((b,i)=>b.classList.toggle('active', tabs[i]===tab));
+  const tabs=['setup','scoring','results','handicap','history'];
+  document.querySelectorAll('.nav-btn').forEach((b,i)=>b.classList.toggle('active',tabs[i]===tab));
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('on'));
   document.getElementById('page-'+tab).classList.add('on');
   window.scrollTo(0,0);
-  if(tab==='history') renderHist();
+  if(tab==='history')  renderHist();
   if(tab==='handicap') renderHcp();
+  if(tab==='results')  { renderResults(); updateSaveButton(); }
 }
+window.sw = sw;
 
+// ── SETUP ─────────────────────────────────────────────────────────────────────
 function selCourse(c) {
-  ST.course = c;
+  ST.course=c;
   document.querySelectorAll('.course-btn').forEach(b=>b.classList.remove('sel'));
   document.getElementById('cb-'+c).classList.add('sel');
 }
+window.selCourse = selCourse;
 
 function addPlayer() {
   const name = document.getElementById('new-name').value.trim();
-  const hcp  = parseFloat(document.getElementById('new-hcp').value) || 0;
+  const hcp  = parseFloat(document.getElementById('new-hcp').value)||0;
   if(!name) return;
   const h = computeLiveHcp(name, null);
-  ST.players.push({name, hcp, liveHcp: h.idx || hcp});
-  ST.scores[name] = [];
-  document.getElementById('new-name').value = '';
-  document.getElementById('new-hcp').value = '';
+  ST.players.push({name, hcp, liveHcp:h.idx||hcp});
+  ST.scores[name]=[];
+  document.getElementById('new-name').value='';
+  document.getElementById('new-hcp').value='';
   renderPlayers();
 }
+window.addPlayer = addPlayer;
 
 function removePlayer(i) {
   delete ST.scores[ST.players[i].name];
   ST.players.splice(i,1);
   renderPlayers();
 }
+window.removePlayer = removePlayer;
 
-function movePlayer(i, dir) {
-  const j = i + dir;
-  if(j < 0 || j >= ST.players.length) return;
-  // swap players
-  [ST.players[i], ST.players[j]] = [ST.players[j], ST.players[i]];
+function movePlayer(i,dir) {
+  const j=i+dir;
+  if(j<0||j>=ST.players.length) return;
+  [ST.players[i],ST.players[j]]=[ST.players[j],ST.players[i]];
   renderPlayers();
 }
+window.movePlayer = movePlayer;
 
 function renderPlayers() {
-  const n = ST.players.length;
-  document.getElementById('players-list').innerHTML = ST.players.map((p,i) => `
+  const n=ST.players.length;
+  document.getElementById('players-list').innerHTML = ST.players.map((p,i)=>`
     <div class="player-entry">
       <div class="move-btns">
-        <button class="move-btn" onclick="movePlayer(${i},-1)" ${i===0?'disabled':''} title="Move up">▲</button>
-        <button class="move-btn" onclick="movePlayer(${i},1)" ${i===n-1?'disabled':''} title="Move down">▼</button>
+        <button class="move-btn" onclick="movePlayer(${i},-1)" ${i===0?'disabled':''}>▲</button>
+        <button class="move-btn" onclick="movePlayer(${i},1)"  ${i===n-1?'disabled':''}>▼</button>
       </div>
       <div class="p-avatar">${p.name.substring(0,2).toUpperCase()}</div>
       <div class="p-name">${p.name}</div>
-      <div class="p-hcp">HCP ${p.hcp}</div>
-      <span class="p-hcp-live">Calc: ${p.liveHcp}</span>
-      <button class="p-remove" onclick="removePlayer(${i})" title="Remove">×</button>
-    </div>`).join('') || '<div style="font-size:13px;color:#ccc;padding:6px 0">No players yet</div>';
+      <div class="p-hcp">HCP&nbsp;${p.hcp}</div>
+      <span class="p-hcp-live">Calc:&nbsp;${p.liveHcp}</span>
+      <button class="p-remove" onclick="removePlayer(${i})">×</button>
+    </div>`).join('')||'<div style="font-size:13px;color:#ccc;padding:6px 0">No players yet</div>';
 }
 
-// ─── DETERMINE HOLES TO PLAY ───────────────────────────────────────────────────
+// ── HOLES ─────────────────────────────────────────────────────────────────────
+function resolveHolesFor(mode) {
+  if(mode==='9f') return Array.from({length:9},(_,i)=>i);
+  if(mode==='9b') return Array.from({length:9},(_,i)=>i+9);
+  return Array.from({length:18},(_,i)=>i);
+}
 function resolveHoles() {
-  const mode = document.getElementById('holes-sel').value;
-  ST.holeMode = mode;
-  if(mode==='9f')  return Array.from({length:9},(_,i)=>i);        // 0–8
-  if(mode==='9b')  return Array.from({length:9},(_,i)=>i+9);      // 9–17
-  return Array.from({length:18},(_,i)=>i);                         // 0–17
+  const m = document.getElementById('holes-sel').value;
+  ST.holeMode = m;
+  return resolveHolesFor(m);
 }
 
-function startRound() {
-  ST.holes = resolveHoles();
-  ST.format = document.getElementById('format-sel').value;
-  ST.date   = document.getElementById('round-date').value;
+async function startRound() {
+  ST.holes   = resolveHoles();
+  ST.format  = document.getElementById('format-sel').value;
+  ST.date    = document.getElementById('round-date').value;
   if(!ST.players.length){alert('Add at least one player');return;}
+  ST.saved   = false;
+  ST.isHost  = true;
   ST.players.forEach(p=>{
-    ST.scores[p.name]=new Array(ST.holes.length).fill('');
-    ST.totals[p.name]='';
+    ST.scores[p.name] = new Array(ST.holes.length).fill('');
+    ST.totals[p.name] = '';
   });
-  buildSC();
-  sw('scoring');
+
+  // Push round to Firebase and get a unique key
+  try {
+    const newRef = push(ref(db,'rounds'));
+    ST.roundId = newRef.key;
+    const meta = {
+      course:ST.course, holeMode:ST.holeMode, format:ST.format,
+      date:ST.date, createdAt:Date.now(),
+      players:ST.players.map(p=>({name:p.name,hcp:p.hcp,liveHcp:p.liveHcp})),
+      playerCount:ST.players.length
+    };
+    await set(newRef, { ...meta, scores:ST.scores, totals:ST.totals });
+    // Set as the active round so others can join
+    await set(ref(db,'activeRound'), { ...meta, roundId:ST.roundId });
+    subscribeToRound(ST.roundId);
+    document.getElementById('sc-live-label').innerHTML = '<span class="live-dot"></span> Live sync on';
+    showSync('synced','✓ Round created — others can join!');
+  } catch(e) {
+    showSync('error','Offline — scoring locally only');
+    ST.roundId = null;
+  }
+
+  buildSC(); sw('scoring');
 }
+window.startRound = startRound;
+window.joinActiveRound = joinActiveRound;
 
-// ─── SCORECARD BUILD ───────────────────────────────────────────────────────────
-let nineView = 'front';
-
-function setNineView(v) {
-  nineView = v;
+// ── SCORECARD ─────────────────────────────────────────────────────────────────
+function setNV(v) {
+  ST.nineView=v;
   ['front','back','all'].forEach(x=>document.getElementById('nt-'+x).classList.toggle('on',x===v));
   buildSC();
 }
+window.setNV = setNV;
+
+function getPhp(pl) {
+  const c=COURSES[ST.course], is9=ST.holeMode!=='18';
+  const pars=ST.holes.map(i=>c.par[i]), totalPar=pars.reduce((a,b)=>a+b,0);
+  const r=is9?c.r9:c.r18, s=is9?c.s9:c.s18;
+  return Math.round((pl.liveHcp||pl.hcp)*(s/113)*(is9?0.5:1)+(r-totalPar));
+}
 
 function buildSC() {
-  const c = COURSES[ST.course];
-  const is18 = ST.holeMode === '18';
-  document.getElementById('nine-selector').style.display = is18 ? 'block' : 'none';
-  document.getElementById('sc-info').style.display = 'block';
-  document.getElementById('sc-title').textContent = c.name;
+  const c=COURSES[ST.course], is18=ST.holeMode==='18';
+  document.getElementById('nine-selector').style.display=is18?'block':'none';
+  document.getElementById('sc-info').style.display='block';
+  document.getElementById('sc-title').textContent=c.name;
+  const ml=ST.holeMode==='9f'?'Front 9 (1–9)':ST.holeMode==='9b'?'Back 9 (10–18)':'Full 18 holes';
+  document.getElementById('sc-sub').textContent=ml+' · '+(ST.format==='stroke'?'Stroke play':'Stableford');
+  document.getElementById('sf-note').style.display=ST.format==='stableford'?'block':'none';
 
-  let modeLabel = ST.holeMode==='9f'?'Front 9 (holes 1–9)': ST.holeMode==='9b'?'Back 9 (holes 10–18)':'Full 18 holes';
-  document.getElementById('sc-sub').textContent = modeLabel + ' · ' + (ST.format==='stroke'?'Stroke play':'Stableford');
-  document.getElementById('sc-date').textContent = ST.date;
-  document.getElementById('sf-note').style.display = ST.format==='stableford'?'block':'none';
+  let ri=[...ST.holes];
+  if(is18&&ST.nineView==='front') ri=ST.holes.slice(0,9);
+  else if(is18&&ST.nineView==='back') ri=ST.holes.slice(9);
 
-  // Which hole indices to render
-  let renderIdx = [...ST.holes];
-  if(is18 && nineView==='front') renderIdx = ST.holes.slice(0,9);
-  else if(is18 && nineView==='back') renderIdx = ST.holes.slice(9,18);
+  const pars=ri.map(i=>c.par[i]), sis=ri.map(i=>c.si[i]);
+  const hn=ri.map(i=>i+1), tp=pars.reduce((a,b)=>a+b,0);
+  const showNet=is18&&ST.nineView==='all';
 
-  const pars = renderIdx.map(i=>c.par[i]);
-  const sis  = renderIdx.map(i=>c.si[i]);
-  const holeNums = renderIdx.map(i=>i+1);
-  const totalPar = pars.reduce((a,b)=>a+b,0);
+  let h=`<thead><tr class="nhdr"><th class="lft">Player</th>`;
+  hn.forEach(n=>h+=`<th>${n}</th>`);
+  h+=`<th title="Enter total here or auto-sums hole scores">Tot ✎</th>${showNet?'<th>Net</th>':''}</tr>
+  <tr class="nhdr"><th class="lft" style="font-weight:400">Par</th>`;
+  pars.forEach(p=>h+=`<th style="font-weight:400">${p}</th>`);
+  h+=`<th style="font-weight:400">${tp}</th>${showNet?'<th></th>':''}</tr>
+  <tr class="sirow"><th class="lft">S.I.</th>`;
+  sis.forEach(s=>h+=`<th>${s}</th>`);
+  h+=`<th></th>${showNet?'<th></th>':''}</tr></thead><tbody>`;
 
-  // Build header
-  let html = `<thead>
-    <tr class="nine-hdr">
-      <th class="lft">Player</th>`;
-  holeNums.forEach(n=>html+=`<th>${n}</th>`);
-  html+=`<th title="Enter total directly or it auto-sums hole scores">Tot ✎</th>`;
-  if(is18 && nineView==='all') html+=`<th>Net</th>`;
-  html+=`</tr>
-    <tr class="nine-hdr">
-      <th class="lft" style="font-weight:400">Par</th>`;
-  pars.forEach(p=>html+=`<th style="font-weight:400">${p}</th>`);
-  html+=`<th style="font-weight:400">${totalPar}</th>`;
-  if(is18 && nineView==='all') html+=`<th></th>`;
-  html+=`</tr>
-    <tr class="si-row">
-      <th class="lft">S.I.</th>`;
-  sis.forEach(s=>html+=`<th>${s}</th>`);
-  html+=`<th></th>`;
-  if(is18 && nineView==='all') html+=`<th></th>`;
-  html+=`</tr></thead><tbody>`;
-
-  // Per-player rows
   ST.players.forEach(pl=>{
-    const ph = getPlayingHcpForPlayer(pl);
-    const sid = pl.name.replace(/\s/g,'_');
-    // Determine existing total input value
-    const manualTot = ST.totals[pl.name] || '';
-
-    html+=`<tr><td class="lft" title="Playing HCP: ${ph}">${pl.name.length>9?pl.name.substring(0,9)+'…':pl.name}<br><span style="font-size:9px;color:#aaa">ph:${ph}</span></td>`;
-
-    renderIdx.forEach((holeIdx, col)=>{
-      const localIdx = ST.holes.indexOf(holeIdx);
-      const val = ST.scores[pl.name][localIdx];
-      html+=`<td><input class="score-input" type="number" min="1" max="15"
-        value="${val||''}" placeholder="-" inputmode="numeric"
-        onchange="updScore('${pl.name}',${localIdx},this.value)"
-        oninput="hlScore(this,${c.par[holeIdx]})"
-        aria-label="Hole ${holeIdx+1} score for ${pl.name}"></td>`;
+    const ph=getPhp(pl), sid=pl.name.replace(/\s/g,'_');
+    const mt=ST.totals[pl.name]||'', hasM=mt!=='';
+    h+=`<tr><td class="lft" title="Playing HCP: ${ph}">${pl.name.length>9?pl.name.substring(0,9)+'…':pl.name}<br><span style="font-size:9px;color:#999">ph:${ph}</span></td>`;
+    ri.forEach(hIdx=>{
+      const li=ST.holes.indexOf(hIdx), val=ST.scores[pl.name][li];
+      h+=`<td><input class="score-input" type="number" min="1" max="15" value="${val||''}" placeholder="-" inputmode="numeric"
+        onchange="updS('${pl.name}',${li},this.value)" oninput="hlS(this,${c.par[hIdx]})"
+        aria-label="Hole ${hIdx+1} score for ${pl.name}"></td>`;
     });
-
-    // Editable total column — green border when manually entered, auto-calculated otherwise
-    const hasManual = manualTot !== '' && manualTot !== null;
-    html+=`<td style="padding:3px 3px">
-      <input class="score-input tot-input" type="number" min="1" max="200"
-        value="${hasManual ? manualTot : ''}"
-        placeholder="—" inputmode="numeric"
-        style="width:38px;font-weight:700;font-size:12px;${hasManual?'border-color:#1a5c2a;background:#f0f9f2;':''}"
-        onchange="updTotal('${pl.name}',this.value,this)"
-        oninput="updTotal('${pl.name}',this.value,this)"
-        title="Type a total score here, or leave blank to auto-sum hole scores"
-        aria-label="Total score for ${pl.name}">
-    </td>`;
-    if(is18 && nineView==='all') html+=`<td id="net-${sid}" style="font-weight:700;color:#1a5c2a">—</td>`;
-    html+=`</tr>`;
-
-    if(ST.format==='stableford') {
-      html+=`<tr class="pts-row"><td class="lft" style="font-size:9px;padding-left:8px;color:#aaa">pts</td>`;
-      renderIdx.forEach((holeIdx,col)=>{
-        const localIdx = ST.holes.indexOf(holeIdx);
-        html+=`<td id="sfp-${sid}-${localIdx}"></td>`;
-      });
-      html+=`<td id="sft-${sid}" style="font-weight:700"></td>`;
-      if(is18 && nineView==='all') html+=`<td></td>`;
-      html+=`</tr>`;
+    h+=`<td style="padding:3px"><input class="score-input tot-input" type="number" min="1" max="200"
+      value="${hasM?mt:''}" placeholder="—" inputmode="numeric"
+      style="width:38px;font-weight:700;font-size:12px;${hasM?'border-color:#1a5c2a;background:#f0f9f2;':''}"
+      onchange="updTotal('${pl.name}',this.value,this)" oninput="updTotal('${pl.name}',this.value,this)"
+      aria-label="Total score for ${pl.name}"></td>`;
+    if(showNet) h+=`<td id="net-${sid}" style="font-weight:700;color:#1a5c2a">—</td>`;
+    h+=`</tr>`;
+    if(ST.format==='stableford'){
+      h+=`<tr class="ptsrow"><td class="lft" style="font-size:9px;color:#aaa;padding-left:8px">pts</td>`;
+      ri.forEach(hIdx=>{const li=ST.holes.indexOf(hIdx);h+=`<td id="sfp-${sid}-${li}"></td>`;});
+      h+=`<td id="sft-${sid}" style="font-weight:700"></td>${showNet?'<td></td>':''}</tr>`;
     }
   });
-
-  // Subtotals for 18-hole "all" view
-  if(is18 && nineView==='all') {
-    html+=`<tr class="subtot"><td class="lft">Front 9</td>`;
-    ST.holes.slice(0,9).forEach(()=>html+=`<td></td>`);
-    html+=`<td id="sub-front">—</td><td></td></tr>`;
-    html+=`<tr class="subtot"><td class="lft">Back 9</td>`;
-    ST.holes.slice(0,9).forEach(()=>html+=`<td></td>`);
-    html+=`<td id="sub-back">—</td><td></td></tr>`;
+  if(showNet){
+    h+=`<tr class="subtot"><td class="lft">Front 9</td>`;
+    ST.holes.slice(0,9).forEach(()=>h+=`<td></td>`);
+    h+=`<td id="sub-f">—</td><td></td></tr>
+    <tr class="subtot"><td class="lft">Back 9</td>`;
+    ST.holes.slice(0,9).forEach(()=>h+=`<td></td>`);
+    h+=`<td id="sub-b">—</td><td></td></tr>`;
   }
-
-  html+=`</tbody>`;
-  document.getElementById('sc-body').innerHTML = html;
-  updateTotals();
+  h+=`</tbody>`;
+  document.getElementById('sc-body').innerHTML=h;
+  updTotals();
 }
 
-function getPlayingHcpForPlayer(pl) {
-  const c = COURSES[ST.course];
-  const is9 = ST.holeMode !== '18';
-  const holeCount = ST.holes.length; // 9 or 18
-  const pars = ST.holes.map(i=>c.par[i]);
-  const totalPar = pars.reduce((a,b)=>a+b,0);
-  const r = is9 ? c.r9 : c.r18;
-  const s = is9 ? c.s9 : c.s18;
-  const mult = is9 ? 0.5 : 1;
-  return Math.round((pl.liveHcp||pl.hcp) * (s/113) * mult + (r - totalPar));
+let syncTimer = null;
+function scheduleSync() {
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(()=>pushToFirebase(), 800); // debounce 800ms
 }
 
-function updScore(name, localIdx, val) {
-  ST.scores[name][localIdx] = val ? parseInt(val) : '';
-  // If hole scores are now being entered, clear the manual total
-  if(val) ST.totals[name] = '';
-  updateTotals();
-  updateLiveHcp();
+function updS(name,li,val) {
+  ST.scores[name][li]=val?parseInt(val):'';
+  if(val) ST.totals[name]='';
+  updTotals(); updLiveHcp();
+  scheduleSync();
 }
+window.updS = updS;
 
-// Called when user types directly into the Tot column
-function updTotal(name, val, input) {
-  const v = val ? parseInt(val) : '';
-  ST.totals[name] = v;
-  // Style the input to show it's manually set
-  if(v) {
-    input.style.borderColor = '#1a5c2a';
-    input.style.background  = '#f0f9f2';
-  } else {
-    input.style.borderColor = '#ddd';
-    input.style.background  = 'white';
-  }
-  updateTotals();
-  updateLiveHcp();
+function updTotal(name,val,input) {
+  const v=val?parseInt(val):'';
+  ST.totals[name]=v;
+  if(v){input.style.borderColor='#1a5c2a';input.style.background='#f0f9f2';}
+  else{input.style.borderColor='#ddd';input.style.background='white';}
+  updTotals(); updLiveHcp();
+  scheduleSync();
 }
+window.updTotal = updTotal;
 
-// Helper: get the effective gross for a player (hole sum OR manual total)
-function getEffectiveGross(pl) {
-  const holeScores = ST.scores[pl.name];
-  const manualTot  = ST.totals[pl.name];
-  const anyHoles   = holeScores.some(s=>s!==''&&s!==null&&!isNaN(s));
-  if(anyHoles) {
-    // Use hole scores — sum whatever is entered
-    return holeScores.reduce((a,s)=>a+(s!==''&&s!==null&&!isNaN(s)?parseInt(s):0),0);
-  }
-  return (manualTot !== '' && manualTot !== null) ? parseInt(manualTot) : null;
-}
-
-function hlScore(input, par) {
-  const v = parseInt(input.value);
-  input.style.background=''; input.style.color='';
+function hlS(input,par) {
+  const v=parseInt(input.value);
+  input.style.background='';input.style.color='';
   if(!v) return;
   if(v<=par-2){input.style.background='#ffd700';input.style.color='#333';}
   else if(v===par-1){input.style.background='#f5e87a';input.style.color='#333';}
   else if(v===par+1) input.style.background='#ffe0e0';
   else if(v>=par+2) input.style.background='#ffc0c0';
 }
+window.hlS = hlS;
 
-function updateTotals() {
-  const c = COURSES[ST.course];
-  const is18 = ST.holeMode==='18';
-
-  ST.players.forEach(pl => {
-    const sid = pl.name.replace(/\s/g,'_');
-    const ph = getPlayingHcpForPlayer(pl);
-    const manualTot = ST.totals[pl.name];
-    const anyHoles = ST.scores[pl.name].some(s=>s!==''&&s!==null&&!isNaN(s));
-
-    let gross=0, net=0, sf=0;
-
-    if(anyHoles) {
-      // ── Hole-by-hole mode ───────────────────────────────────────────────
-      ST.holes.forEach((holeIdx, localIdx) => {
-        const s = ST.scores[pl.name][localIdx];
+function updTotals() {
+  const c=COURSES[ST.course], is18=ST.holeMode==='18';
+  ST.players.forEach(pl=>{
+    const sid=pl.name.replace(/\s/g,'_'), ph=getPhp(pl);
+    const mt=ST.totals[pl.name], anyH=ST.scores[pl.name].some(s=>s!==''&&s!==null&&!isNaN(s));
+    let gross=0,net=0,sf=0;
+    if(anyH){
+      ST.holes.forEach((hIdx,li)=>{
+        const s=ST.scores[pl.name][li];
         if(s===''||s===null||isNaN(s)) return;
-        gross += parseInt(s);
-        const si = c.si[holeIdx];
-        const strokes = si <= ph ? 1 : 0;
-        net += parseInt(s) - strokes;
-        const pts = Math.max(0, c.par[holeIdx] - (parseInt(s)-strokes) + 2);
-        sf += pts;
-        if(ST.format==='stableford'){
-          const el=document.getElementById(`sfp-${sid}-${localIdx}`);
-          if(el) el.textContent = pts>0?pts:'—';
-        }
+        gross+=parseInt(s);
+        const str=c.si[hIdx]<=ph?1:0;
+        net+=parseInt(s)-str;
+        const pts=Math.max(0,c.par[hIdx]-(parseInt(s)-str)+2); sf+=pts;
+        if(ST.format==='stableford'){const el=document.getElementById(`sfp-${sid}-${li}`);if(el)el.textContent=pts>0?pts:'—';}
       });
-      // Keep tot input in sync but don't override — just clear manual flag
-      const totInput = document.querySelector(`input.tot-input[aria-label="Total score for ${pl.name}"]`);
-      if(totInput && !manualTot) {
-        totInput.value = gross || '';
-        totInput.style.borderColor = '#ddd';
-        totInput.style.background  = 'white';
-        totInput.style.fontWeight  = '700';
-      }
-    } else if(manualTot !== '' && manualTot !== null) {
-      // ── Total-only mode ─────────────────────────────────────────────────
-      gross = parseInt(manualTot);
-      // Net = gross minus playing handicap (best estimate without hole SIs)
-      net   = gross - ph;
-      // Stableford approx: not calculable per-hole, show gross only
-      sf    = 0;
+      const ti=document.querySelector(`input.tot-input[aria-label="Total score for ${pl.name}"]`);
+      if(ti&&!mt){ti.value=gross||'';ti.style.borderColor='#ddd';ti.style.background='white';}
+    } else if(mt!==''&&mt!==null){
+      gross=parseInt(mt); net=gross-ph;
     }
-
-    const totInput = document.querySelector(`input.tot-input[aria-label="Total score for ${pl.name}"]`);
-    if(totInput && anyHoles) {
-      // Show auto-calculated gross in the total input
-      totInput.value = gross || '';
-      totInput.placeholder = gross ? '' : '—';
-    }
-
-    const netEl = document.getElementById('net-'+sid);
-    if(netEl) netEl.textContent = (gross>0&&net>0) ? net : '—';
-
-    if(ST.format==='stableford'){
-      const sftEl=document.getElementById('sft-'+sid);
-      if(sftEl) sftEl.textContent = sf?sf+'pts':'';
-    }
-
-    // Front/back subtotals for 18-hole all view
-    if(is18 && anyHoles) {
-      let front=0, back=0;
-      ST.holes.slice(0,9).forEach((_,i)=>{
-        const s=ST.scores[pl.name][i];
-        if(s&&!isNaN(s)) front+=parseInt(s);
-      });
-      ST.holes.slice(9,18).forEach((_,i)=>{
-        const s=ST.scores[pl.name][i+9];
-        if(s&&!isNaN(s)) back+=parseInt(s);
-      });
-      const fEl=document.getElementById('sub-front');
-      const bEl=document.getElementById('sub-back');
-      if(fEl && front) fEl.textContent=front;
-      if(bEl && back)  bEl.textContent=back;
+    const ne=document.getElementById('net-'+sid);if(ne)ne.textContent=(gross>0&&net>0)?net:'—';
+    if(ST.format==='stableford'){const se=document.getElementById('sft-'+sid);if(se)se.textContent=sf?sf+'pts':'';}
+    if(is18&&anyH){
+      let f=0,b=0;
+      ST.holes.slice(0,9).forEach((_,i)=>{const s=ST.scores[pl.name][i];if(s&&!isNaN(s))f+=parseInt(s);});
+      ST.holes.slice(9).forEach((_,i)=>{const s=ST.scores[pl.name][i+9];if(s&&!isNaN(s))b+=parseInt(s);});
+      const fe=document.getElementById('sub-f');const be=document.getElementById('sub-b');
+      if(fe&&f)fe.textContent=f;if(be&&b)be.textContent=b;
     }
   });
 }
 
-// ─── LIVE HANDICAP UPDATE ──────────────────────────────────────────────────────
-function updateLiveHcp() {
-  const c = COURSES[ST.course];
-  const strip = document.getElementById('live-hcp-strip');
-  const body  = document.getElementById('live-hcp-body');
-
-  // For each player, if they have a complete 9-hole segment, include that gross
-  let anyUpdated = false;
-  const rows = ST.players.map(pl => {
-    // Get gross — from hole scores (when complete) or manual total
-    let newGross = null;
-    const scores = ST.scores[pl.name];
-    const manualTot = ST.totals[pl.name];
-    if(ST.holeMode !== '18') {
-      const all9 = scores.every(s=>s!==''&&s!==null&&!isNaN(s));
-      if(all9) newGross = scores.reduce((a,b)=>a+parseInt(b),0);
-      else if(manualTot!==''&&manualTot!==null) newGross = parseInt(manualTot);
+function updLiveHcp() {
+  const strip=document.getElementById('live-hcp-strip');
+  let anyUp=false;
+  const rows=ST.players.map(pl=>{
+    const sc=ST.scores[pl.name], mt=ST.totals[pl.name];
+    let ng=null;
+    if(ST.holeMode!=='18'){
+      if(sc.every(s=>s!==''&&s!==null&&!isNaN(s))) ng=sc.reduce((a,b)=>a+parseInt(b),0);
+      else if(mt!==''&&mt!==null) ng=parseInt(mt);
     } else {
-      const front = scores.slice(0,9);
-      if(front.every(s=>s!==''&&s!==null&&!isNaN(s)))
-        newGross = front.reduce((a,b)=>a+parseInt(b),0);
-      else if(manualTot!==''&&manualTot!==null) newGross = parseInt(manualTot);
+      const f=sc.slice(0,9);
+      if(f.every(s=>s!==''&&s!==null&&!isNaN(s))) ng=f.reduce((a,b)=>a+parseInt(b),0);
+      else if(mt!==''&&mt!==null) ng=parseInt(mt);
     }
-
-    const h = computeLiveHcp(pl.name, newGross);
-    const oldIdx = pl.liveHcp || pl.hcp;
-    const changed = newGross !== null;
-    if(changed) anyUpdated=true;
-    const diff = parseFloat((h.idx - oldIdx).toFixed(1));
-    const diffStr = diff===0?'—':diff>0?'▲ +'+diff:'▼ '+diff;
-    const diffCls = diff<0?'pu':diff>0?'po':'pe';
+    const hh=computeLiveHcp(pl.name,ng);
+    const old=pl.liveHcp||pl.hcp;
+    if(ng!==null) anyUp=true;
+    const d=parseFloat((hh.idx-old).toFixed(1));
+    const ds=d===0?'—':d>0?'▲ +'+d:'▼ '+d;
+    const cls=d<0?'pu':d>0?'po':'pe';
     return `<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid #f5f5f5">
-      <div style="width:62px;font-weight:700;font-size:13px">${pl.name}</div>
-      <div style="flex:1;font-size:12px;color:#aaa">was ${oldIdx.toFixed(1)}</div>
-      <div style="font-size:16px;font-weight:700;color:#1a5c2a">${h.idx}</div>
-      <span class="pill ${diffCls}" style="font-size:10px">${changed?diffStr:'—'}</span>
+      <div style="width:64px;font-weight:700;font-size:13px">${pl.name}</div>
+      <div style="flex:1;font-size:12px;color:#aaa">was ${old.toFixed(1)}</div>
+      <div style="font-size:16px;font-weight:700;color:#1a5c2a">${hh.idx}</div>
+      <span class="pill ${cls}" style="font-size:10px">${ng!==null?ds:'—'}</span>
     </div>`;
   });
-
-  strip.style.display = 'block';
-  body.innerHTML = rows.join('');
-  // Update badge on hcp page
-  const badge = document.getElementById('hcp-live-badge');
-  if(badge) badge.style.display = anyUpdated?'inline':'none';
+  strip.style.display='block';
+  document.getElementById('live-hcp-body').innerHTML=rows.join('');
+  const b=document.getElementById('hcp-live-badge');if(b)b.style.display=anyUp?'inline':'none';
 }
 
 function resetScores() {
-  ST.players.forEach(p=>{
-    ST.scores[p.name]=new Array(ST.holes.length).fill('');
-    ST.totals[p.name]='';
-  });
-  buildSC();
+  ST.players.forEach(p=>{ST.scores[p.name]=new Array(ST.holes.length).fill('');ST.totals[p.name]='';});
+  buildSC(); pushToFirebase();
 }
+window.resetScores = resetScores;
 
-// ─── RESULTS ───────────────────────────────────────────────────────────────────
-let resFmtLocal = 'stroke';
+// ── RESULTS ───────────────────────────────────────────────────────────────────
 function setFmt(f) {
   resFmtLocal=f;
   ['stroke','stableford','gross'].forEach(x=>document.getElementById('fmt-'+x).classList.toggle('on',x===f));
   renderResults();
 }
+window.setFmt = setFmt;
+
 function renderResults() {
-  const c = COURSES[ST.course];
-  const pars = ST.holes.map(i=>c.par[i]);
-  const totalPar = pars.reduce((a,b)=>a+b,0);
-
-  const results = ST.players.map(pl=>{
-    const ph = getPlayingHcpForPlayer(pl);
-    const manualTot = ST.totals[pl.name];
-    const anyHoles = ST.scores[pl.name].some(s=>s!==''&&s!==null&&!isNaN(s));
-    let gross=0, net=0, sf=0, done=false;
-
-    if(anyHoles) {
-      // Calculate from individual hole scores
-      let allFilled = true;
-      ST.holes.forEach((holeIdx,li)=>{
-        const s = ST.scores[pl.name][li];
-        if(s===''||s===null||isNaN(s)){allFilled=false;return;}
-        gross += parseInt(s);
-        const str = c.si[holeIdx]<=ph?1:0;
-        net += parseInt(s)-str;
-        sf += Math.max(0, c.par[holeIdx]-(parseInt(s)-str)+2);
+  const c=COURSES[ST.course], pars=ST.holes.map(i=>c.par[i]), tp=pars.reduce((a,b)=>a+b,0);
+  const res=ST.players.map(pl=>{
+    const ph=getPhp(pl), mt=ST.totals[pl.name];
+    const anyH=ST.scores[pl.name].some(s=>s!==''&&s!==null&&!isNaN(s));
+    let gross=0,net=0,sf=0,done=false;
+    if(anyH){
+      let all=true;
+      ST.holes.forEach((hI,li)=>{
+        const s=ST.scores[pl.name][li];
+        if(s===''||s===null||isNaN(s)){all=false;return;}
+        gross+=parseInt(s);
+        const str=c.si[hI]<=ph?1:0; net+=parseInt(s)-str;
+        sf+=Math.max(0,c.par[hI]-(parseInt(s)-str)+2);
       });
-      done = allFilled;
-    } else if(manualTot!==''&&manualTot!==null) {
-      // Total-only entry: net = gross minus playing handicap
-      gross = parseInt(manualTot);
-      net   = gross - ph;
-      sf    = 0; // can't calc stableford without hole scores
-      done  = true;
-    }
-    return {pl, gross, net, sf, done, ph, netToPar:net-totalPar, grossToPar:gross-totalPar,
-            totalOnly: !anyHoles && manualTot!==''};
+      done=all;
+    } else if(mt!==''&&mt!==null){gross=parseInt(mt);net=gross-ph;done=true;}
+    return{pl,gross,net,sf,done,ph,ntp:net-tp,gtp:gross-tp,totalOnly:!anyH&&mt!==''};
   });
-
-  results.sort((a,b)=>resFmtLocal==='stableford'?b.sf-a.sf:resFmtLocal==='gross'?a.gross-b.gross:a.net-b.net);
-  const medals=['🥇','🥈','🥉'];
-  const w=results[0];
-  document.getElementById('winner-wrap').innerHTML = w&&w.done ? `<div class="winner-banner">
+  res.sort((a,b)=>resFmtLocal==='stableford'?b.sf-a.sf:resFmtLocal==='gross'?a.gross-b.gross:a.net-b.net);
+  const medals=['🥇','🥈','🥉'], w=res[0];
+  document.getElementById('winner-wrap').innerHTML=w&&w.done?`<div class="winner-banner">
     <div style="font-size:34px">🏆</div><div>
     <div class="w-name">${w.pl.name}</div>
     <div class="w-sub">Leading — ${resFmtLocal==='stableford'?w.sf+'pts':resFmtLocal==='gross'?'gross '+w.gross:'net '+w.net}</div>
-    </div></div>` : '';
-
-  document.getElementById('lb-body').innerHTML = results.map((r,i)=>{
-    const score = resFmtLocal==='stableford'?r.sf:resFmtLocal==='gross'?r.gross:r.net;
-    const diff  = resFmtLocal==='stableford'?r.sf:resFmtLocal==='gross'?r.grossToPar:r.netToPar;
-    const ds    = resFmtLocal==='stableford'?r.sf+'pts':(diff===0?'E':diff>0?'+'+diff:diff);
-    const cls   = resFmtLocal==='stableford'?'pu':diff<0?'pu':diff>0?'po':'pe';
+    </div></div>`:'';
+  document.getElementById('lb-body').innerHTML=res.map((r,i)=>{
+    const sc=resFmtLocal==='stableford'?r.sf:resFmtLocal==='gross'?r.gross:r.net;
+    const d=resFmtLocal==='stableford'?r.sf:resFmtLocal==='gross'?r.gtp:r.ntp;
+    const ds=resFmtLocal==='stableford'?r.sf+'pts':(d===0?'E':d>0?'+'+d:d);
+    const cls=resFmtLocal==='stableford'?'pu':d<0?'pu':d>0?'po':'pe';
     return `<div class="lb-row${i===0?' top':''}">
       <div class="lb-pos">${medals[i]||i+1}</div>
       <div style="flex:1"><div class="lb-name">${r.pl.name}</div>
-      <div class="lb-detail">Gross ${r.gross} · Net ${r.net} · Playing HCP ${r.ph}${r.totalOnly?' · <span style="color:#f5a623">total only</span>':''}</div></div>
-      <div class="lb-right"><div class="lb-score">${r.done?score:score+'*'}</div>
+      <div class="lb-detail">Gross ${r.gross} · Net ${r.net} · HCP ${r.ph}${r.totalOnly?' · <span style="color:#f5a623">total only</span>':''}</div></div>
+      <div class="lb-right"><div class="lb-score">${r.done?sc:sc+'*'}</div>
       <span class="pill ${cls}">${r.done?ds:'incomplete'}</span></div>
     </div>`;
   }).join('');
 }
 
-// ─── HISTORY ───────────────────────────────────────────────────────────────────
-function saveHistory() {
-  const c = COURSES[ST.course];
-  const pars = ST.holes.map(i=>c.par[i]);
-  const totalPar = pars.reduce((a,b)=>a+b,0);
-  const entry = {
-    id: Date.now(),
-    date: ST.date || new Date().toISOString().split('T')[0],
-    course: ST.course,
-    courseName: c.name,
-    holeMode: ST.holeMode,
-    format: ST.format,
-    players: ST.players.map(pl=>{
-      const ph = getPlayingHcpForPlayer(pl);
-      let gross=0, net=0, sf=0;
-      ST.holes.forEach((hI,li)=>{
-        const s=ST.scores[pl.name][li];
-        if(s===''||s===null) return;
-        gross+=parseInt(s);
-        const str=c.si[hI]<=ph?1:0;
-        net+=parseInt(s)-str;
-        sf+=Math.max(0,c.par[hI]-(parseInt(s)-str)+2);
-      });
-      return{name:pl.name, hcp:pl.hcp, liveHcp:pl.liveHcp, ph, gross, net, sf};
-    })
-  };
-  // Add to mob history for live hcp
-  entry.players.forEach(p=>{
-    if(p.gross>0 && !MOB_HISTORY[p.name]) MOB_HISTORY[p.name]=[];
-    if(p.gross>0 && MOB_HISTORY[p.name]) {
-      // only add 9-hole gross
-      const g9 = ST.holeMode==='18' ? Math.round(p.gross/2) : p.gross;
-      MOB_HISTORY[p.name].push(g9);
-    }
-  });
-  ST.history.unshift(entry);
-  localStorage.setItem('rgm_h2', JSON.stringify(ST.history));
-  renderHcp();
-  sw('history');
+function updateSaveButton() {
+  const btn=document.getElementById('save-btn');if(!btn)return;
+  if(ST.saved){btn.textContent='✅ Round saved';btn.disabled=true;btn.style.background='#aaa';btn.style.cursor='default';}
+  else{btn.textContent='💾 Save round';btn.disabled=false;btn.style.background='';btn.style.cursor='';}
 }
 
+// ── HISTORY ───────────────────────────────────────────────────────────────────
+function saveHistory() {
+  if(ST.saved){alert('This round has already been saved. Start a new round from Setup.');return;}
+  const dup=ST.history.find(r=>r.date===(ST.date||new Date().toISOString().split('T')[0])&&r.course===ST.course&&r.holeMode===ST.holeMode);
+  if(dup&&!confirm(`A round at ${COURSES[ST.course].name} on ${ST.date} was already saved.\n\nSave anyway?`)) return;
+
+  const c=COURSES[ST.course];
+  const entry={
+    id:Date.now(), date:ST.date||new Date().toISOString().split('T')[0],
+    course:ST.course, courseName:c.name, holeMode:ST.holeMode, format:ST.format,
+    players:ST.players.map(pl=>{
+      const ph=getPhp(pl), mt=ST.totals[pl.name];
+      const anyH=ST.scores[pl.name].some(s=>s!==''&&s!==null&&!isNaN(s));
+      let gross=0,net=0,sf=0;
+      if(anyH){
+        ST.holes.forEach((hI,li)=>{
+          const s=ST.scores[pl.name][li];if(s===''||s===null||isNaN(s))return;
+          gross+=parseInt(s);const str=c.si[hI]<=ph?1:0;net+=parseInt(s)-str;
+          sf+=Math.max(0,c.par[hI]-(parseInt(s)-str)+2);
+        });
+      } else if(mt!==''&&mt!==null){gross=parseInt(mt);net=gross-ph;}
+      if(gross>0){
+        if(!MOB_HISTORY[pl.name])MOB_HISTORY[pl.name]=[];
+        MOB_HISTORY[pl.name].push(ST.holeMode==='18'?Math.round(gross/2):gross);
+      }
+      return{name:pl.name,hcp:pl.hcp,liveHcp:pl.liveHcp,ph,gross,net,sf};
+    })
+  };
+  ST.history.unshift(entry);
+  localStorage.setItem('rgm_h3',JSON.stringify(ST.history));
+  ST.saved=true; updateSaveButton();
+  // Mark round as complete in Firebase
+  if(ST.roundId) set(ref(db,`rounds/${ST.roundId}/status`),'complete').catch(()=>{});
+  renderHcp(); sw('history');
+}
+window.saveHistory = saveHistory;
+
 function renderHist() {
-  const el = document.getElementById('hist-body');
+  const el=document.getElementById('hist-body');
   if(!ST.history.length){el.innerHTML='<div class="empty">No rounds saved yet</div>';return;}
-  const bmap = {gardiners:'bg',morack:'bm',dorset:'bd'};
-  const hmap = {'9f':'Front 9','9b':'Back 9','18':'18 holes'};
-  el.innerHTML = ST.history.map(r=>{
-    const sorted = [...r.players].sort((a,b)=>r.format==='stableford'?b.sf-a.sf:a.net-b.net);
-    const w=sorted[0];
-    return `<div class="hist-row">
-      <div style="flex:1">
-        <span class="badge-c ${bmap[r.course]||'bg'}">${r.courseName}</span>
-        <span style="font-size:11px;color:#aaa;margin-left:6px">${hmap[r.holeMode]||''}</span>
-        <div style="font-size:11px;color:#aaa;margin-top:3px">${r.date} · ${r.players.length} players</div>
-        <div style="font-size:13px;font-weight:600;margin-top:3px">🏆 ${w?.name||'—'} — ${r.format==='stableford'?w?.sf+'pts':'net '+w?.net}</div>
-        <div style="font-size:11px;color:#aaa;margin-top:3px">${r.players.map(p=>`${p.name} ${p.gross}`).join(' · ')}</div>
-      </div>
-    </div>`;
+  const bmap={gardiners:'bg',morack:'bm',dorset:'bd'};
+  const hmap={'9f':'Front 9','9b':'Back 9','18':'18 holes'};
+  el.innerHTML=ST.history.map(r=>{
+    const s=[...r.players].sort((a,b)=>r.format==='stableford'?b.sf-a.sf:a.net-b.net),w=s[0];
+    return `<div class="hist-row"><div style="flex:1">
+      <span class="badge-c ${bmap[r.course]||'bg'}">${r.courseName}</span>
+      <span style="font-size:11px;color:#aaa;margin-left:6px">${hmap[r.holeMode]||''}</span>
+      <div style="font-size:11px;color:#aaa;margin-top:3px">${r.date} · ${r.players.length} players</div>
+      <div style="font-size:13px;font-weight:600;margin-top:3px">🏆 ${w?.name||'—'} — ${r.format==='stableford'?w?.sf+'pts':'net '+w?.net}</div>
+      <div style="font-size:11px;color:#aaa;margin-top:3px">${r.players.map(p=>`${p.name} ${p.gross}`).join(' · ')}</div>
+    </div></div>`;
   }).join('');
 }
 
 function clearHistory() {
-  if(!confirm('Clear all saved rounds?')) return;
-  ST.history=[];
-  localStorage.setItem('rgm_h2','[]');
-  renderHist();
+  if(!confirm('Clear all saved rounds?'))return;
+  ST.history=[];localStorage.setItem('rgm_h3','[]');renderHist();
 }
+window.clearHistory = clearHistory;
 
-// ─── HANDICAP PAGE ─────────────────────────────────────────────────────────────
+// ── HANDICAPS ─────────────────────────────────────────────────────────────────
 function renderHcp() {
-  const c = COURSES[ST.course];
-  const r9 = c.r9, s9 = c.s9, par9 = c.par.slice(0,9).reduce((a,b)=>a+b,0);
+  const c=COURSES[ST.course], r9=c.r9, s9=c.s9, par9=c.par.slice(0,9).reduce((a,b)=>a+b,0);
+  const names=[...new Set([...Object.keys(MOB_HISTORY),...ST.players.map(p=>p.name)])];
+  const players=names.map(name=>{
+    const hist=MOB_HISTORY[name]||[];
+    const diffs=hist.map(g=>diff9(g,r9,s9));
+    const sorted=[...diffs].sort((a,b)=>a-b);
+    const n=numBest(hist.length), best=sorted.slice(0,n);
+    const idx=hist.length?parseFloat((best.reduce((a,b)=>a+b,0)/best.length*0.96).toFixed(1)):(MOB_OLD_HCP[name]||0);
+    const ph=calcPlayHcp(idx,s9,r9,par9), old=MOB_OLD_HCP[name]||idx;
+    const chg=parseFloat((idx-old).toFixed(1));
+    const avg=hist.length?parseFloat((hist.reduce((a,b)=>a+b,0)/hist.length).toFixed(1)):0;
+    return{name,idx,ph,old,chg,diffs,best,n,hist,avg,bestScore:hist.length?Math.min(...hist):0,target:par9+ph};
+  }).sort((a,b)=>a.idx-b.idx);
 
-  // Build full player list including non-mob players
-  const allNames = [...new Set([...Object.keys(MOB_HISTORY), ...ST.players.map(p=>p.name)])];
-
-  const players = allNames.map(name=>{
-    const hist = MOB_HISTORY[name] || [];
-    const diffs = hist.map(g=>scoreDiff9(g,r9,s9));
-    const sorted = [...diffs].sort((a,b)=>a-b);
-    const n = numBest(hist.length);
-    const best = sorted.slice(0,n);
-    const idx = hist.length ? parseFloat((best.reduce((a,b)=>a+b,0)/best.length*0.96).toFixed(1)) : (MOB_OLD_HCP[name]||0);
-    const ph = playHcp(idx, s9, r9, par9);
-    const oldHcp = MOB_OLD_HCP[name] || idx;
-    const change = parseFloat((idx - oldHcp).toFixed(1));
-    const avg = hist.length ? parseFloat((hist.reduce((a,b)=>a+b,0)/hist.length).toFixed(1)) : 0;
-    const bestScore = hist.length ? Math.min(...hist) : 0;
-    return {name, idx, ph, oldHcp, change, diffs, best, n, hist, avg, bestScore, target:par9+ph};
-  });
-
-  players.sort((a,b)=>a.idx-b.idx);
-
-  document.getElementById('hcp-cards').innerHTML = players.map(p=>{
-    const cc = p.change<0?'ci':p.change>0?'cw':'cs';
-    const ct = p.change===0?'No change from seed':p.change>0?'▲ +'+p.change.toFixed(1)+' higher':'▼ '+Math.abs(p.change).toFixed(1)+' lower (better)';
-    const pills = p.diffs.map((d,i)=>{
-      const usedCount = p.best.filter(x=>x===d).length;
-      const thisCount = p.diffs.slice(0,i+1).filter(x=>x===d).length;
-      const used = thisCount<=usedCount;
-      // Check if this is the most recent (last) score — mark as "new"
-      const isLast = i===p.diffs.length-1 && p.hist.length>(MOB_HISTORY[p.name]||[]).length-1;
-      return `<span class="dp ${used?'dp-used':'dp-unused'}" title="Round ${i+1}: ${p.hist[i]}">${d>0?'+':''}${d.toFixed(1)}</span>`;
+  document.getElementById('hcp-cards').innerHTML=players.map(p=>{
+    const cc=p.chg<0?'ci':p.chg>0?'cw':'cs';
+    const ct=p.chg===0?'No change':p.chg>0?'▲ +'+p.chg.toFixed(1)+' higher':'▼ '+Math.abs(p.chg).toFixed(1)+' lower (better)';
+    const pills=p.diffs.map((d,i)=>{
+      const uc=p.best.filter(x=>x===d).length, tc=p.diffs.slice(0,i+1).filter(x=>x===d).length;
+      return `<span class="dp ${tc<=uc?'dp-used':'dp-unused'}" title="Round ${i+1}: ${p.hist[i]}">${d>0?'+':''}${d.toFixed(1)}</span>`;
     }).join('');
-
-    return `<div class="hcp-card${p.change<0?' improved':''}">
+    return `<div class="hcp-card${p.chg<0?' improved':''}">
       <div class="hcp-top">
         <div class="hcp-avatar">${p.name.substring(0,2).toUpperCase()}</div>
-        <div style="flex:1">
-          <div style="font-size:14px;font-weight:700">${p.name}</div>
-          <div style="font-size:11px;color:#aaa;margin-top:1px">${p.hist.length} rounds · best ${p.n} differential${p.n>1?'s':''}</div>
-        </div>
-        <div style="text-align:right">
-          <div class="hcp-val">${p.idx}</div>
-          <div class="hcp-lbl">HCP index</div>
-        </div>
+        <div style="flex:1"><div style="font-size:14px;font-weight:700">${p.name}</div>
+        <div style="font-size:11px;color:#aaa;margin-top:1px">${p.hist.length} rounds · best ${p.n} diff${p.n>1?'s':''}</div></div>
+        <div style="text-align:right"><div class="hcp-val">${p.idx}</div><div class="hcp-lbl">HCP index</div></div>
       </div>
       <div class="mini-grid">
-        <div class="mini-stat"><div class="ms-val">${p.ph}</div><div class="ms-lbl">Playing HCP</div></div>
+        <div class="mini-stat"><div class="ms-val">${p.ph}</div><div class="ms-lbl">Play HCP</div></div>
         <div class="mini-stat"><div class="ms-val">${p.target}</div><div class="ms-lbl">Target</div></div>
-        <div class="mini-stat"><div class="ms-val">${p.bestScore||'—'}</div><div class="ms-lbl">Best round</div></div>
-        <div class="mini-stat"><div class="ms-val">${p.avg||'—'}</div><div class="ms-lbl">Average</div></div>
+        <div class="mini-stat"><div class="ms-val">${p.bestScore||'—'}</div><div class="ms-lbl">Best</div></div>
+        <div class="mini-stat"><div class="ms-val">${p.avg||'—'}</div><div class="ms-lbl">Avg</div></div>
       </div>
-      <div style="font-size:10px;color:#ccc;margin-bottom:5px">Score differentials — green = used in calculation:</div>
+      <div style="font-size:10px;color:#ccc;margin-bottom:5px">Differentials — green = used:</div>
       <div class="diffs">${pills||'—'}</div>
       <div style="margin-top:10px;display:flex;align-items:center;gap:8px">
         <span class="chg-badge ${cc}">${ct}</span>
-        <span style="font-size:11px;color:#ccc">seed was ${p.oldHcp.toFixed(1)}</span>
+        <span style="font-size:11px;color:#ccc">seed ${p.old.toFixed(1)}</span>
       </div>
     </div>`;
   }).join('');
 
-  // Summary stats
-  const imp = players.filter(p=>p.change<0).length;
-  const wrs = players.filter(p=>p.change>0).length;
-  const ao  = parseFloat((players.reduce((a,p)=>a+p.oldHcp,0)/players.length).toFixed(1));
-  const an  = parseFloat((players.reduce((a,p)=>a+p.idx,0)/players.length).toFixed(1));
-  document.getElementById('hcp-summary').innerHTML = `
-    <div class="sg"><div class="sg-val" style="color:#1a5c2a">${imp}</div><div class="sg-lbl">Improved (lower)</div></div>
-    <div class="sg"><div class="sg-val" style="color:#a32d2d">${wrs}</div><div class="sg-lbl">Higher index</div></div>
-    <div class="sg"><div class="sg-val">${ao}</div><div class="sg-lbl">Avg seed index</div></div>
-    <div class="sg"><div class="sg-val">${an}</div><div class="sg-lbl">Avg calc index</div></div>`;
-
-  const rows = players.map(p=>{
-    const cc=p.change<0?'pu':p.change>0?'po':'pe';
-    const ct=p.change===0?'—':p.change>0?'+'+p.change.toFixed(1):p.change.toFixed(1);
-    return `<tr>
-      <td style="font-weight:700">${p.name}</td>
-      <td>${p.oldHcp.toFixed(1)}</td>
-      <td style="font-weight:700;color:#1a5c2a">${p.idx}</td>
-      <td><span class="pill ${cc}">${ct}</span></td>
-      <td>${p.ph}</td>
-      <td>${p.target}</td>
-      <td style="color:#aaa">${p.hist.length}</td>
-    </tr>`;
-  }).join('');
+  const imp=players.filter(p=>p.chg<0).length, wrs=players.filter(p=>p.chg>0).length;
+  const ao=parseFloat((players.reduce((a,p)=>a+p.old,0)/players.length).toFixed(1));
+  const an=parseFloat((players.reduce((a,p)=>a+p.idx,0)/players.length).toFixed(1));
+  document.getElementById('hcp-summary').innerHTML=`
+    <div class="sg"><div class="sg-val" style="color:#1a5c2a">${imp}</div><div class="sg-lbl">Improved</div></div>
+    <div class="sg"><div class="sg-val" style="color:#a32d2d">${wrs}</div><div class="sg-lbl">Higher</div></div>
+    <div class="sg"><div class="sg-val">${ao}</div><div class="sg-lbl">Avg seed</div></div>
+    <div class="sg"><div class="sg-val">${an}</div><div class="sg-lbl">Avg calc</div></div>`;
   document.getElementById('hcp-comp').innerHTML=`
-    <thead><tr><th>Player</th><th>Seed</th><th>Calculated</th><th>Change</th><th>Play HCP</th><th>Target</th><th>Rounds</th></tr></thead>
-    <tbody>${rows}</tbody>`;
+    <thead><tr><th>Player</th><th>Seed</th><th>Calc</th><th>Change</th><th>Play HCP</th><th>Target</th><th>Rounds</th></tr></thead>
+    <tbody>${players.map(p=>{
+      const cc=p.chg<0?'pu':p.chg>0?'po':'pe', ct=p.chg===0?'—':p.chg>0?'+'+p.chg.toFixed(1):p.chg.toFixed(1);
+      return `<tr><td style="font-weight:700">${p.name}</td><td>${p.old.toFixed(1)}</td>
+        <td style="font-weight:700;color:#1a5c2a">${p.idx}</td>
+        <td><span class="pill ${cc}">${ct}</span></td>
+        <td>${p.ph}</td><td>${p.target}</td><td style="color:#aaa">${p.hist.length}</td></tr>`;
+    }).join('')}</tbody>`;
 }
 
-// ─── MANUAL CALCULATOR ─────────────────────────────────────────────────────────
+// ── CALCULATOR ────────────────────────────────────────────────────────────────
 function fillRating() {
-  const v=document.getElementById('calc-course').value;
-  if(!v) return;
+  const v=document.getElementById('calc-course').value;if(!v)return;
   const key=v.replace(/9$|18$/,''), h=v.endsWith('9')?9:18;
-  const c=COURSES[key]; if(!c) return;
-  document.getElementById('calc-rating').value = h===9?c.r9:c.r18;
-  document.getElementById('calc-slope').value  = h===9?c.s9:c.s18;
-  document.getElementById('calc-par').value    = (h===9?c.par.slice(0,9):c.par).reduce((a,b)=>a+b,0);
+  const c=COURSES[key];if(!c)return;
+  document.getElementById('calc-rating').value=h===9?c.r9:c.r18;
+  document.getElementById('calc-slope').value=h===9?c.s9:c.s18;
+  document.getElementById('calc-par').value=(h===9?c.par.slice(0,9):c.par).reduce((a,b)=>a+b,0);
   doCalc();
 }
+window.fillRating = fillRating;
+
 function doCalc() {
   const idx=parseFloat(document.getElementById('calc-idx').value);
   const rating=parseFloat(document.getElementById('calc-rating').value);
@@ -1074,18 +1058,24 @@ function doCalc() {
   const par=parseInt(document.getElementById('calc-par').value);
   const gross=parseInt(document.getElementById('calc-gross').value);
   if(isNaN(idx)||isNaN(rating)||isNaN(slope)||isNaN(par)){
-    ['r-ph','r-net','r-diff','r-topar'].forEach(id=>document.getElementById(id).textContent='—'); return;
+    ['r-ph','r-net','r-diff','r-topar'].forEach(id=>document.getElementById(id).textContent='—');return;
   }
   const ph=Math.round(idx*(slope/113)*0.5+(rating-par));
   document.getElementById('r-ph').textContent=ph;
   if(!isNaN(gross)){
-    const net=gross-ph, diff=parseFloat(((gross-rating)*(113/slope)*2).toFixed(1)), tp=net-par;
+    const net=gross-ph, d=parseFloat(((gross-rating)*(113/slope)*2).toFixed(1)), tp=net-par;
     document.getElementById('r-net').textContent=net;
-    document.getElementById('r-diff').textContent=diff;
+    document.getElementById('r-diff').textContent=d;
     const tpEl=document.getElementById('r-topar');
     tpEl.textContent=tp===0?'E':tp>0?'+'+tp:tp;
     tpEl.style.color=tp<0?'#1a5c2a':tp>0?'#a32d2d':'#888';
   }
+}
+window.doCalc = doCalc;
+
+// ── SERVICE WORKER ────────────────────────────────────────────────────────────
+if('serviceWorker' in navigator) {
+  window.addEventListener('load',()=>navigator.serviceWorker.register('/service-worker.js').catch(()=>{}));
 }
 
 init();
