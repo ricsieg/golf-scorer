@@ -9,9 +9,9 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Golf Mob">
-<link rel="manifest" href="manifest.webmanifest">
-<link rel="apple-touch-icon" href="icons/icon-152.png">
-<link rel="icon" type="image/png" sizes="96x96" href="icons/icon-96.png">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="apple-touch-icon" href="./icons/icon-152.png">
+<link rel="icon" type="image/png" sizes="96x96" href="./icons/icon-96.png">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f0f2ec;color:#1a1a1a;min-height:100vh}
@@ -150,6 +150,25 @@ table.sc .ptsrow td:first-child{background:#f8fff8}
 .live-badge{display:inline-block;background:#f5c842;color:#333;font-size:10px;font-weight:700;padding:2px 7px;border-radius:8px;margin-left:6px;vertical-align:middle}
 .join-banner{background:#e8f5ea;border:1.5px solid #1a5c2a;border-radius:10px;padding:12px 14px;margin-bottom:12px;font-size:13px;color:#1a5c2a;font-weight:600}
 .join-banner span{font-size:11px;font-weight:400;color:#555;display:block;margin-top:3px}
+/* GPS distance */
+.gps-hole-card{background:white;border-radius:14px;padding:18px 16px;margin-bottom:10px;box-shadow:0 1px 3px rgba(0,0,0,0.06);border:1.5px solid #eee}
+.gps-hole-card.current{border-color:#1a5c2a;box-shadow:0 2px 12px rgba(26,92,42,0.15)}
+.gps-dist{font-size:56px;font-weight:700;line-height:1;margin:4px 0}
+.gps-dist.far{color:#1a1a1a}.gps-dist.mid{color:#e67e22}.gps-dist.close{color:#1a5c2a}
+.gps-unit{font-size:16px;font-weight:500;color:#aaa;margin-left:3px}
+.set-green-btn{margin-top:12px;padding:9px 14px;font-size:12px;font-weight:600;background:#e8f5ea;color:#1a5c2a;border:1.5px solid #1a5c2a;border-radius:8px;cursor:pointer;width:100%;-webkit-tap-highlight-color:transparent}
+.set-green-btn.saved{background:#1a5c2a;color:white}
+.hole-nav{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:10px}
+.hole-nav-btn{padding:10px 20px;font-size:18px;font-weight:700;background:#1a5c2a;color:white;border:none;border-radius:9px;cursor:pointer;flex-shrink:0}
+.hole-nav-btn:disabled{background:#ddd;color:#aaa}
+.hole-nav-label{font-size:16px;font-weight:700;color:#1a1a1a;text-align:center;flex:1}
+.gps-list-row{display:flex;align-items:center;gap:12px;padding:10px 12px;background:white;border-radius:10px;border:1px solid #eee;margin-bottom:6px}
+.gps-list-row.nearest{border-color:#1a5c2a;border-width:2px}
+.gps-list-dist{flex:1;font-size:18px;font-weight:700}
+.gps-list-dist.close{color:#1a5c2a}.gps-list-dist.mid{color:#e67e22}.gps-list-dist.far{color:#1a1a1a}
+.view-toggle{display:flex;gap:6px;margin-bottom:12px}
+.view-toggle button{flex:1;padding:8px;font-size:12px;font-weight:600;border:1.5px solid #ddd;border-radius:8px;background:white;color:#888;cursor:pointer}
+.view-toggle button.on{background:#1a5c2a;color:white;border-color:#1a5c2a}
 </style>
 </head>
 <body>
@@ -169,6 +188,7 @@ table.sc .ptsrow td:first-child{background:#f8fff8}
   <button class="nav-btn active" onclick="sw('setup')">Setup</button>
   <button class="nav-btn" onclick="sw('scoring')">Scores</button>
   <button class="nav-btn" onclick="sw('results')">Results</button>
+  <button class="nav-btn" onclick="sw('gps')">📍 Distance</button>
   <button class="nav-btn" onclick="sw('handicap')">Handicaps</button>
   <button class="nav-btn" onclick="sw('history')">History</button>
 </div>
@@ -340,6 +360,63 @@ table.sc .ptsrow td:first-child{background:#f8fff8}
   </div>
 </div>
 
+<!-- GPS DISTANCE -->
+<div class="page" id="page-gps">
+  <div class="card">
+    <div class="ct">Ball to hole distance</div>
+    <div class="view-toggle">
+      <button class="on" id="gv-current" onclick="setGpsView('current')">Current hole</button>
+      <button id="gv-all" onclick="setGpsView('all')">All holes</button>
+    </div>
+    <div id="gps-course-label" style="font-size:12px;color:#aaa;margin-bottom:10px"></div>
+  </div>
+
+  <!-- Current hole view -->
+  <div id="gps-current-view">
+    <div class="hole-nav">
+      <button class="hole-nav-btn" id="gps-prev" onclick="gpsChangeHole(-1)">◀</button>
+      <div class="hole-nav-label" id="gps-hole-label">Hole 1</div>
+      <button class="hole-nav-btn" id="gps-next" onclick="gpsChangeHole(1)">▶</button>
+    </div>
+    <div class="card gps-hole-card current" id="gps-main-card">
+      <div style="display:flex;align-items:baseline;gap:4px">
+        <div class="gps-dist far" id="gps-main-dist">—</div>
+        <span class="gps-unit">m</span>
+        <span style="font-size:12px;color:#aaa;margin-left:8px" id="gps-main-label">to green centre</span>
+      </div>
+      <div style="font-size:12px;color:#aaa;margin-top:6px" id="gps-main-par"></div>
+      <div style="font-size:11px;color:#aaa;margin-top:4px" id="gps-accuracy"></div>
+      <button class="set-green-btn" id="gps-set-btn" onclick="setGreenPosition()">
+        📍 Set green position (stand on green)
+      </button>
+    </div>
+    <div class="card" style="padding:12px 14px">
+      <div style="font-size:11px;color:#aaa;line-height:1.7">
+        <strong style="color:#1a1a1a;font-size:12px">How to use:</strong><br>
+        1. Select your current hole using ◀ ▶<br>
+        2. Distance updates live as you walk<br>
+        3. Stand on each green and tap <strong>Set green position</strong> to save exact coordinates<br>
+        4. Saved positions are remembered for future rounds
+      </div>
+    </div>
+  </div>
+
+  <!-- All holes view -->
+  <div id="gps-all-view" style="display:none">
+    <div class="card">
+      <div class="ct">All holes — distance from current position</div>
+      <div id="gps-all-list"></div>
+    </div>
+  </div>
+
+  <div class="card" style="padding:10px 14px">
+    <div style="font-size:11px;color:#aaa;text-align:center" id="gps-pos-info">Waiting for GPS signal...</div>
+    <div style="font-size:11px;color:#aaa;text-align:center;margin-top:4px">
+      🟢 = within 100m &nbsp;🟡 = 100–200m &nbsp;⚪ = 200m+
+    </div>
+  </div>
+</div>
+
 <!-- Firebase SDK -->
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
@@ -363,24 +440,48 @@ const db    = getDatabase(fbApp);
 const COURSES = {
   gardiners: {
     name: 'Gardiners Run',
-    // Verified pars: H1-H9 front, H10-H18 back
     par: [4,5,3,4,4,4,3,5,4, 5,3,4,4,4,4,3,4,4],
-    // Official mens SI — front 9: H1=3,H2=11,H3=15,H4=5,H5=18,H6=1,H7=6,H8=13,H9=7
-    // Official mens SI — back 9:  H10=8,H11=3,H12=2,H13=10,H14=6,H15=17,H16=14,H17=16,H18=4
     si:  [3,11,15,5,18,1,9,13,7, 8,12,2,10,6,17,14,16,4],
-    r9:35.0, s9:125, r18:70.0, s18:125
+    r9:35.0, s9:125, r18:70.0, s18:125,
+    // Approximate green centres — players can refine by standing on green and tapping Set
+    greens:[
+      {lat:-37.6882,lng:145.3498},{lat:-37.6875,lng:145.3508},{lat:-37.6868,lng:145.3518},
+      {lat:-37.6858,lng:145.3505},{lat:-37.6848,lng:145.3495},{lat:-37.6840,lng:145.3510},
+      {lat:-37.6832,lng:145.3522},{lat:-37.6845,lng:145.3535},{lat:-37.6860,lng:145.3542},
+      {lat:-37.6872,lng:145.3550},{lat:-37.6885,lng:145.3538},{lat:-37.6895,lng:145.3525},
+      {lat:-37.6905,lng:145.3512},{lat:-37.6915,lng:145.3500},{lat:-37.6905,lng:145.3488},
+      {lat:-37.6892,lng:145.3478},{lat:-37.6880,lng:145.3468},{lat:-37.6870,lng:145.3480}
+    ]
   },
   morack: {
     name: 'Morack Golf',
     par: [5,4,3,4,5,3,4,4,4, 5,4,3,4,5,3,4,4,4],
     si:  [3,15,17,9,1,13,7,5,11, 4,16,18,10,2,14,8,6,12],
-    r9:34.0, s9:116, r18:68.0, s18:116
+    r9:34.0, s9:116, r18:68.0, s18:116,
+    greens:[
+      {lat:-37.8542,lng:145.2318},{lat:-37.8532,lng:145.2330},{lat:-37.8522,lng:145.2342},
+      {lat:-37.8512,lng:145.2330},{lat:-37.8502,lng:145.2318},{lat:-37.8492,lng:145.2330},
+      {lat:-37.8502,lng:145.2345},{lat:-37.8515,lng:145.2355},{lat:-37.8528,lng:145.2345},
+      {lat:-37.8540,lng:145.2358},{lat:-37.8552,lng:145.2345},{lat:-37.8562,lng:145.2332},
+      {lat:-37.8552,lng:145.2318},{lat:-37.8540,lng:145.2305},{lat:-37.8528,lng:145.2295},
+      {lat:-37.8518,lng:145.2308},{lat:-37.8530,lng:145.2320},{lat:-37.8542,lng:145.2308}
+    ]
   },
   dorset: {
     name: 'Dorset Golf',
     par: [4,4,3,5,4,3,4,5,4, 4,4,3,5,4,3,4,5,4],
     si:  [4,10,16,6,2,18,12,3,14, 5,11,17,7,1,15,9,4,13],
-    r9:33.0, s9:110, r18:66.0, s18:110
+    r9:33.0, s9:110, r18:66.0, s18:110,
+    greens:[
+      {lat:-37.7998,lng:145.2892},{lat:-37.7988,lng:145.2905},{lat:-37.7978,lng:145.2918},
+      {lat:-37.7968,lng:145.2905},{lat:-37.7958,lng:145.2892},{lat:-37.7948,lng:145.2905},
+      {lat:-37.7958,lng:145.2920},{lat:-37.7970,lng:145.2932},{lat:-37.7982,lng:145.2920},
+      {lat:-37.7994,lng:145.2935},{lat:-37.8006,lng:145.2920},{lat:-37.8016,lng:145.2908},
+      {lat:-37.8006,lng:145.2895},{lat:-37.7994,lng:145.2882},{lat:-37.7982,lng:145.2870},
+      {lat:-37.7970,lng:145.2882},{lat:-37.7982,lng:145.2895},{lat:-37.7994,lng:145.2882}
+    ]
+  }
+};
   }
 };
 
@@ -422,12 +523,20 @@ function computeLiveHcp(name, newGross){
 let ST = {
   course:'gardiners', holeMode:'9f', holes:[], date:'', format:'stroke',
   players:[], scores:{}, totals:{}, saved:false, nineView:'front',
-  roundId:null,        // Firebase round key
-  isHost:false,        // true if this device created the round
-  fbListener:null,     // active Firebase listener ref
+  roundId:null, isHost:false, fbListener:null,
   history: JSON.parse(localStorage.getItem('rgm_h3')||'[]')
 };
 let resFmtLocal = 'stroke';
+
+// ── GPS STATE ─────────────────────────────────────────────────────────────────
+let GPS = {
+  currentHole: 0,          // 0-based index
+  watchId: null,           // geolocation watch ID
+  position: null,          // current {lat,lng,accuracy}
+  view: 'current',         // 'current' or 'all'
+  // Load saved green positions from localStorage
+  saved: JSON.parse(localStorage.getItem('rgm_greens') || '{}')
+};
 
 // ── SYNC HELPERS ──────────────────────────────────────────────────────────────
 function showSync(state, msg) {
@@ -563,7 +672,7 @@ function init() {
 
 // ── NAV ───────────────────────────────────────────────────────────────────────
 function sw(tab) {
-  const tabs=['setup','scoring','results','handicap','history'];
+  const tabs=['setup','scoring','results','gps','handicap','history'];
   document.querySelectorAll('.nav-btn').forEach((b,i)=>b.classList.toggle('active',tabs[i]===tab));
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('on'));
   document.getElementById('page-'+tab).classList.add('on');
@@ -571,6 +680,7 @@ function sw(tab) {
   if(tab==='history')  renderHist();
   if(tab==='handicap') renderHcp();
   if(tab==='results')  { renderResults(); updateSaveButton(); }
+  if(tab==='gps')      { initGps(); }
 }
 window.sw = sw;
 
@@ -1075,8 +1185,161 @@ window.doCalc = doCalc;
 
 // ── SERVICE WORKER ────────────────────────────────────────────────────────────
 if('serviceWorker' in navigator) {
-  window.addEventListener('load',()=>navigator.serviceWorker.register('/service-worker.js').catch(()=>{}));
+  window.addEventListener('load',()=>navigator.serviceWorker.register('/golf-scorer/service-worker.js').catch(()=>{}));
 }
+
+// ── GPS ENGINE ────────────────────────────────────────────────────────────────
+function haversineMetres(lat1,lng1,lat2,lng2) {
+  const R=6371000, toRad=d=>d*Math.PI/180;
+  const dLat=toRad(lat2-lat1), dLng=toRad(lng2-lng1);
+  const a=Math.sin(dLat/2)**2+Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLng/2)**2;
+  return Math.round(R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a)));
+}
+
+function getGreenCoords(course, holeIdx) {
+  // Check if player has saved a custom position for this hole
+  const key = `${course}_${holeIdx}`;
+  if(GPS.saved[key]) return GPS.saved[key];
+  // Fall back to approximate coords
+  return COURSES[course].greens[holeIdx];
+}
+
+function distClass(m) {
+  if(m <= 100) return 'close';
+  if(m <= 200) return 'mid';
+  return 'far';
+}
+
+function initGps() {
+  const c = COURSES[ST.course];
+  document.getElementById('gps-course-label').textContent = c.name + ' — tap ◀▶ to change hole';
+  // Set current hole to match round if in progress
+  if(ST.holes.length > 0) GPS.currentHole = ST.holes[0];
+  updateGpsHoleDisplay();
+
+  if(!('geolocation' in navigator)) {
+    document.getElementById('gps-pos-info').textContent = '⚠️ GPS not available on this device';
+    return;
+  }
+  // Start watching position
+  if(GPS.watchId) navigator.geolocation.clearWatch(GPS.watchId);
+  GPS.watchId = navigator.geolocation.watchPosition(
+    pos => {
+      GPS.position = {lat:pos.coords.latitude, lng:pos.coords.longitude, acc:Math.round(pos.coords.accuracy)};
+      document.getElementById('gps-pos-info').textContent =
+        `📍 GPS locked — accuracy ±${GPS.position.acc}m`;
+      updateGpsDistances();
+    },
+    err => {
+      const msgs = {1:'Location permission denied — allow in phone settings',2:'GPS signal lost',3:'GPS timed out'};
+      document.getElementById('gps-pos-info').textContent = '⚠️ ' + (msgs[err.code]||'GPS error');
+    },
+    {enableHighAccuracy:true, maximumAge:3000, timeout:10000}
+  );
+}
+
+function updateGpsHoleDisplay() {
+  const h = GPS.currentHole;
+  const c = COURSES[ST.course];
+  const hNum = h + 1;
+  const par = c.par[h];
+  const key = `${ST.course}_${h}`;
+  const hasCustom = !!GPS.saved[key];
+
+  document.getElementById('gps-hole-label').textContent = `Hole ${hNum} — Par ${par}`;
+  document.getElementById('gps-prev').disabled = h === 0;
+  document.getElementById('gps-next').disabled = h === 17;
+  document.getElementById('gps-main-par').textContent = `Par ${par} · SI ${c.si[h]}`;
+
+  const btn = document.getElementById('gps-set-btn');
+  btn.textContent = hasCustom ? '✅ Green position saved — tap to update' : '📍 Set green position (stand on green)';
+  btn.className = 'set-green-btn' + (hasCustom?' saved':'');
+
+  updateGpsDistances();
+}
+
+function updateGpsDistances() {
+  const h = GPS.currentHole;
+  const green = getGreenCoords(ST.course, h);
+  const distEl = document.getElementById('gps-main-dist');
+
+  if(GPS.position && green) {
+    const m = haversineMetres(GPS.position.lat, GPS.position.lng, green.lat, green.lng);
+    distEl.textContent = m;
+    distEl.className = 'gps-dist ' + distClass(m);
+    document.getElementById('gps-main-label').textContent = 'metres to green';
+  } else {
+    distEl.textContent = '—';
+    distEl.className = 'gps-dist far';
+    document.getElementById('gps-main-label').textContent = GPS.position ? 'waiting for green data' : 'waiting for GPS...';
+  }
+
+  // Update all-holes list
+  if(GPS.view === 'all') renderGpsAllList();
+}
+
+function renderGpsAllList() {
+  const c = COURSES[ST.course];
+  let nearest = -1, nearestDist = Infinity;
+  const rows = c.par.map((par,i) => {
+    const green = getGreenCoords(ST.course, i);
+    let dist = null;
+    if(GPS.position && green) {
+      dist = haversineMetres(GPS.position.lat, GPS.position.lng, green.lat, green.lng);
+      if(dist < nearestDist) { nearestDist=dist; nearest=i; }
+    }
+    const key = `${ST.course}_${i}`;
+    const hasCustom = !!GPS.saved[key];
+    return {i, par, dist, hasCustom};
+  });
+
+  document.getElementById('gps-all-list').innerHTML = rows.map(({i,par,dist,hasCustom})=>{
+    const cls = dist!==null ? distClass(dist) : 'far';
+    const distStr = dist!==null ? dist+'m' : '—';
+    return `<div class="gps-list-row${i===nearest?' nearest':''}">
+      <div style="width:52px;font-size:12px;font-weight:700;color:#666">Hole ${i+1}</div>
+      <div style="width:44px;font-size:12px;color:#aaa">Par ${par}</div>
+      <div class="gps-list-dist ${cls}" style="flex:1">${distStr}</div>
+      <div style="font-size:10px;color:#aaa">${hasCustom?'📍':'~'}</div>
+    </div>`;
+  }).join('');
+}
+
+function gpsChangeHole(dir) {
+  GPS.currentHole = Math.max(0, Math.min(17, GPS.currentHole + dir));
+  updateGpsHoleDisplay();
+}
+window.gpsChangeHole = gpsChangeHole;
+
+function setGpsView(v) {
+  GPS.view = v;
+  document.getElementById('gv-current').classList.toggle('on', v==='current');
+  document.getElementById('gv-all').classList.toggle('on', v==='all');
+  document.getElementById('gps-current-view').style.display = v==='current'?'block':'none';
+  document.getElementById('gps-all-view').style.display = v==='all'?'block':'none';
+  if(v==='all') renderGpsAllList();
+}
+window.setGpsView = setGpsView;
+
+function setGreenPosition() {
+  if(!GPS.position) {
+    alert('Waiting for GPS signal — make sure location is enabled on your phone');
+    return;
+  }
+  if(GPS.position.acc > 20) {
+    const ok = confirm(`GPS accuracy is ±${GPS.position.acc}m — this is low accuracy. Save anyway?`);
+    if(!ok) return;
+  }
+  const key = `${ST.course}_${GPS.currentHole}`;
+  GPS.saved[key] = {lat:GPS.position.lat, lng:GPS.position.lng};
+  localStorage.setItem('rgm_greens', JSON.stringify(GPS.saved));
+  updateGpsHoleDisplay();
+  // Auto advance to next hole
+  if(GPS.currentHole < 17) {
+    setTimeout(()=>{ GPS.currentHole++; updateGpsHoleDisplay(); }, 800);
+  }
+}
+window.setGreenPosition = setGreenPosition;
 
 init();
 </script>
