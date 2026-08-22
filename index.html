@@ -691,7 +691,9 @@ function init() {
     const h = computeLiveHcp(name, null);
     ST.players.push({name, hcp:MOB_OLD_HCP[name]||0, liveHcp:h.idx});
   });
-  renderPlayers(); renderHcp(); renderHist();
+  renderPlayers(); renderHcp();
+  // Load history from Firebase on startup
+  loadHistory();
   // Check Firebase connection status
   onValue(ref(db, '.info/connected'), snap => {
     const el = document.getElementById('conn-status');
@@ -708,7 +710,7 @@ function sw(tab) {
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('on'));
   document.getElementById('page-'+tab).classList.add('on');
   window.scrollTo(0,0);
-  if(tab==='history')  renderHist();
+  if(tab==='history')  loadHistory();  // always reload fresh from Firebase
   if(tab==='handicap') renderHcp();
   if(tab==='results')  { renderResults(); updateSaveButton(); }
   if(tab==='gps')      { initGps(); }
@@ -1057,17 +1059,20 @@ function updateSaveButton() {
   else{btn.textContent='💾 Save round';btn.disabled=false;btn.style.background='';btn.style.cursor='';}
 }
 
-// ── HISTORY ───────────────────────────────────────────────────────────────────
-function saveHistory() {
+// ── HISTORY — stored permanently in Firebase ───────────────────────────────────
+async function saveHistory() {
   if(ST.saved){alert('This round has already been saved. Start a new round from Setup.');return;}
-  const dup=ST.history.find(r=>r.date===(ST.date||new Date().toISOString().split('T')[0])&&r.course===ST.course&&r.holeMode===ST.holeMode);
+  const today = ST.date||new Date().toISOString().split('T')[0];
+  const dup = ST.history.find(r=>r.date===today&&r.course===ST.course&&r.holeMode===ST.holeMode);
   if(dup&&!confirm(`A round at ${COURSES[ST.course].name} on ${ST.date} was already saved.\n\nSave anyway?`)) return;
 
-  const c=COURSES[ST.course];
-  const entry={
-    id:Date.now(), date:ST.date||new Date().toISOString().split('T')[0],
-    course:ST.course, courseName:c.name, holeMode:ST.holeMode, format:ST.format,
-    players:ST.players.map(pl=>{
+  const c = COURSES[ST.course];
+  const entry = {
+    id: Date.now(),
+    date: today,
+    course: ST.course, courseName: c.name,
+    holeMode: ST.holeMode, format: ST.format,
+    players: ST.players.map(pl=>{
       const ph=getPhp(pl), mt=ST.totals[pl.name];
       const anyH=ST.scores[pl.name].some(s=>s!==''&&s!==null&&!isNaN(s));
       let gross=0,net=0,sf=0;
@@ -1085,18 +1090,54 @@ function saveHistory() {
       return{name:pl.name,hcp:pl.hcp,liveHcp:pl.liveHcp,ph,gross,net,sf};
     })
   };
+
+  // Save to Firebase permanently
+  try {
+    showSync('syncing','Saving round to cloud...');
+    await set(ref(db,`history/${entry.id}`), entry);
+    showSync('synced','✅ Round saved to cloud permanently');
+  } catch(e) {
+    showSync('error','Cloud save failed — saved locally only');
+    console.warn('Firebase history save failed:', e);
+  }
+
+  // Also keep local copy as backup
   ST.history.unshift(entry);
-  localStorage.setItem('rgm_h3',JSON.stringify(ST.history));
+  localStorage.setItem('rgm_h3', JSON.stringify(ST.history.slice(0,50)));
+
   ST.saved=true; updateSaveButton();
-  // Mark round as complete in Firebase
   if(ST.roundId) set(ref(db,`rounds/${ST.roundId}/status`),'complete').catch(()=>{});
   renderHcp(); sw('history');
 }
 window.saveHistory = saveHistory;
 
+async function loadHistory() {
+  try {
+    const snap = await get(ref(db,'history'));
+    if(snap.val()) {
+      const data = snap.val();
+      // Convert Firebase object to sorted array
+      ST.history = Object.values(data).sort((a,b)=>b.id-a.id);
+      // Update local backup
+      localStorage.setItem('rgm_h3', JSON.stringify(ST.history.slice(0,50)));
+    } else {
+      // Fall back to local storage if Firebase empty
+      ST.history = JSON.parse(localStorage.getItem('rgm_h3')||'[]');
+    }
+  } catch(e) {
+    // Offline — use local storage
+    ST.history = JSON.parse(localStorage.getItem('rgm_h3')||'[]');
+    console.warn('Using local history (offline):', e);
+  }
+  renderHist();
+}
+
 function renderHist() {
   const el=document.getElementById('hist-body');
-  if(!ST.history.length){el.innerHTML='<div class="empty">No rounds saved yet</div>';return;}
+  if(!ST.history.length){
+    el.innerHTML='<div class="empty">No rounds saved yet</div>';
+    return;
+  }
   const bmap={gardiners:'bg',morack:'bm',dorset:'bd'};
   const hmap={'9f':'Front 9','9b':'Back 9','18':'18 holes'};
   el.innerHTML=ST.history.map(r=>{
@@ -1111,9 +1152,14 @@ function renderHist() {
   }).join('');
 }
 
-function clearHistory() {
-  if(!confirm('Clear all saved rounds?'))return;
-  ST.history=[];localStorage.setItem('rgm_h3','[]');renderHist();
+async function clearHistory() {
+  if(!confirm('Clear ALL saved rounds from cloud and device? This cannot be undone.')) return;
+  try {
+    await set(ref(db,'history'), null);
+  } catch(e) { console.warn('Cloud clear failed:', e); }
+  ST.history=[];
+  localStorage.setItem('rgm_h3','[]');
+  renderHist();
 }
 window.clearHistory = clearHistory;
 
