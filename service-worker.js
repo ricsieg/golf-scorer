@@ -1,5 +1,5 @@
-// Rob's Golf Mob — Service Worker v13
-const CACHE = 'rgm-v13';
+// Rob's Golf Mob — Service Worker v14
+const CACHE = 'rgm-v14';
 const ASSETS = [
   '/golf-scorer/',
   '/golf-scorer/index.html',

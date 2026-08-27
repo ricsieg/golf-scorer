@@ -179,7 +179,7 @@ table.sc .ptsrow td:first-child{background:#f8fff8}
   <div class="topbar-logo">⛳</div>
   <div>
     <h1>Rob's Golf Mob</h1>
-    <p id="topbar-sub">Melbourne Social Golf</p>
+    <p id="topbar-sub">Melbourne Social Golf · v14</p>
   </div>
   <div id="conn-status" class="offline">Offline</div>
 </div>
@@ -576,20 +576,62 @@ function showSync(state, msg) {
   if(state==='synced') setTimeout(()=>{ bar.style.display='none'; }, 2000);
 }
 
-async function pushToFirebase() {
-  if(!ST.roundId) return;
-  try {
-    showSync('syncing','Syncing scores...');
-    await set(ref(db, `rounds/${ST.roundId}/scores`), ST.scores);
-    await set(ref(db, `rounds/${ST.roundId}/totals`), ST.totals);
-    showSync('synced','✓ Scores synced');
-  } catch(e) {
-    showSync('error','Sync failed — scores saved locally');
+// ── RELIABLE SYNC ENGINE ──────────────────────────────────────────────────────
+// Queues every score change and retries until confirmed written to Firebase.
+// Each score is written individually so one failure doesn't block others.
+
+const SYNC_QUEUE = {};      // {key: {path, value, retries}}
+let syncIntervalId = null;
+let isConnected = false;
+
+function queueSync(path, value) {
+  // Add to queue — overwrites any pending write to same path
+  SYNC_QUEUE[path] = { path, value, retries: 0, ts: Date.now() };
+  flushQueue();
+}
+
+async function flushQueue() {
+  if(!isConnected || !ST.roundId) return;
+  const pending = Object.values(SYNC_QUEUE);
+  if(!pending.length) return;
+
+  for(const item of pending) {
+    try {
+      await set(ref(db, item.path), item.value);
+      delete SYNC_QUEUE[item.path];  // confirmed — remove from queue
+    } catch(e) {
+      item.retries++;
+      if(item.retries > 10) {
+        console.warn('Giving up on:', item.path);
+        delete SYNC_QUEUE[item.path];
+      }
+    }
+  }
+  updateSyncIndicator();
+}
+
+function updateSyncIndicator() {
+  const pending = Object.keys(SYNC_QUEUE).length;
+  const bar = document.getElementById('sync-bar');
+  if(pending === 0) {
+    bar.className = 'synced';
+    bar.textContent = '✓ All scores saved';
+    setTimeout(()=>{ bar.style.display='none'; }, 2000);
+  } else {
+    bar.className = 'syncing';
+    bar.textContent = `Saving ${pending} score${pending>1?'s':''}...`;
   }
 }
 
+// Start a background flush every 3 seconds to catch anything that failed
+function startSyncInterval() {
+  if(syncIntervalId) clearInterval(syncIntervalId);
+  syncIntervalId = setInterval(() => {
+    if(Object.keys(SYNC_QUEUE).length > 0) flushQueue();
+  }, 3000);
+}
+
 function subscribeToRound(roundId) {
-  // Detach any previous listener
   if(ST.fbListener) { off(ST.fbListener); ST.fbListener=null; }
   const roundRef = ref(db, `rounds/${roundId}`);
   ST.fbListener = roundRef;
@@ -597,21 +639,21 @@ function subscribeToRound(roundId) {
     const data = snap.val();
     if(!data) return;
     let changed = false;
-    // Merge remote scores — only update cells this device didn't just change
+
     if(data.scores) {
       Object.keys(data.scores).forEach(name => {
         if(!ST.scores[name]) ST.scores[name] = new Array(ST.holes.length).fill('');
         data.scores[name].forEach((val, li) => {
-          if(val !== ST.scores[name][li]) {
+          // Only update if different AND this device isn't actively editing this cell
+          const input = document.querySelector(`input[aria-label="Hole ${ST.holes[li]+1} score for ${name}"]`);
+          const isFocused = input && document.activeElement === input;
+          if(!isFocused && val !== ST.scores[name][li]) {
             ST.scores[name][li] = val;
             changed = true;
-            // Flash the cell yellow to show remote update
-            const sid = name.replace(/\s/g,'_');
-            const input = document.querySelector(`input[aria-label="Hole ${ST.holes[li]+1} score for ${name}"]`);
-            if(input && document.activeElement !== input) {
+            if(input) {
               input.value = val || '';
               input.classList.add('remote-update');
-              setTimeout(()=>input.classList.remove('remote-update'), 800);
+              setTimeout(()=>input.classList.remove('remote-update'), 1000);
               hlS(input, COURSES[ST.course].par[ST.holes[li]]);
             }
           }
@@ -627,10 +669,42 @@ function subscribeToRound(roundId) {
       });
     }
     if(changed) { updTotals(); updLiveHcp(); renderResults(); }
-    // Show live badge on results tab
     document.getElementById('lb-live-badge').style.display = 'inline';
   });
 }
+
+// Write a single score to Firebase immediately with retry
+function syncScore(playerName, holeLocalIdx) {
+  if(!ST.roundId) return;
+  const path = `rounds/${ST.roundId}/scores/${playerName}/${holeLocalIdx}`;
+  const val = ST.scores[playerName][holeLocalIdx];
+  queueSync(path, val === '' ? null : val);
+}
+
+function syncTotal(playerName) {
+  if(!ST.roundId) return;
+  const path = `rounds/${ST.roundId}/totals/${playerName}`;
+  const val = ST.totals[playerName];
+  queueSync(path, val === '' ? null : val);
+}
+
+// Old pushToFirebase — push everything at once (used on round start/reset)
+async function pushToFirebase() {
+  if(!ST.roundId) return;
+  try {
+    showSync('syncing','Syncing all scores...');
+    await set(ref(db, `rounds/${ST.roundId}/scores`), ST.scores);
+    await set(ref(db, `rounds/${ST.roundId}/totals`), ST.totals);
+    showSync('synced','✓ Scores synced');
+  } catch(e) {
+    showSync('error','Sync failed — will retry automatically');
+    // Add everything to queue for retry
+    if(ST.scores) Object.keys(ST.scores).forEach(name => {
+      ST.scores[name].forEach((val,li) => queueSync(`rounds/${ST.roundId}/scores/${name}/${li}`, val||null));
+    });
+  }
+}
+
 
 // Check if there's an active round in Firebase today
 async function checkActiveRound() {
@@ -694,12 +768,22 @@ function init() {
   renderPlayers(); renderHcp();
   // Load history from Firebase on startup
   loadHistory();
-  // Check Firebase connection status
+  // Track Firebase connection — flush pending queue on reconnect
   onValue(ref(db, '.info/connected'), snap => {
     const el = document.getElementById('conn-status');
-    if(snap.val()) { el.textContent='🟢 Live'; el.className='online'; }
-    else           { el.textContent='Offline'; el.className='offline'; }
+    isConnected = !!snap.val();
+    if(isConnected) {
+      el.textContent='🟢 Live'; el.className='online';
+      // Flush any queued scores immediately on reconnect
+      if(Object.keys(SYNC_QUEUE).length > 0) {
+        showSync('syncing', 'Reconnected — syncing missed scores...');
+        flushQueue();
+      }
+    } else {
+      el.textContent='Offline'; el.className='offline';
+    }
   });
+  startSyncInterval();  // background retry every 3 seconds
   checkActiveRound();
 }
 
@@ -868,13 +952,17 @@ function buildSC() {
     ri.forEach(hIdx=>{
       const li=ST.holes.indexOf(hIdx), val=ST.scores[pl.name][li];
       h+=`<td><input class="score-input" type="number" min="1" max="15" value="${val||''}" placeholder="-" inputmode="numeric"
-        onchange="updS('${pl.name}',${li},this.value)" oninput="hlS(this,${c.par[hIdx]})"
+        onchange="updS('${pl.name}',${li},this.value)"
+        onblur="updS('${pl.name}',${li},this.value)"
+        oninput="hlS(this,${c.par[hIdx]})"
         aria-label="Hole ${hIdx+1} score for ${pl.name}"></td>`;
     });
     h+=`<td style="padding:3px"><input class="score-input tot-input" type="number" min="1" max="200"
       value="${hasM?mt:''}" placeholder="—" inputmode="numeric"
       style="width:38px;font-weight:700;font-size:12px;${hasM?'border-color:#1a5c2a;background:#f0f9f2;':''}"
-      onchange="updTotal('${pl.name}',this.value,this)" oninput="updTotal('${pl.name}',this.value,this)"
+      onchange="updTotal('${pl.name}',this.value,this)"
+      onblur="updTotal('${pl.name}',this.value,this)"
+      oninput="updTotal('${pl.name}',this.value,this)"
       aria-label="Total score for ${pl.name}"></td>`;
     if(showNet) h+=`<td id="net-${sid}" style="font-weight:700;color:#1a5c2a">—</td>`;
     h+=`</tr>`;
@@ -897,28 +985,22 @@ function buildSC() {
   updTotals();
 }
 
-let syncTimer = null;
-function scheduleSync() {
-  clearTimeout(syncTimer);
-  syncTimer = setTimeout(()=>pushToFirebase(), 800); // debounce 800ms
-}
-
-function updS(name,li,val) {
-  ST.scores[name][li]=val?parseInt(val):'';
-  if(val) ST.totals[name]='';
+function updS(name, li, val) {
+  ST.scores[name][li] = val ? parseInt(val) : '';
+  if(val) ST.totals[name] = '';
   updTotals(); updLiveHcp();
-  scheduleSync();
+  syncScore(name, li);       // write this one score immediately
   checkAutoAdvanceHole();
 }
 window.updS = updS;
 
-function updTotal(name,val,input) {
-  const v=val?parseInt(val):'';
-  ST.totals[name]=v;
-  if(v){input.style.borderColor='#1a5c2a';input.style.background='#f0f9f2';}
-  else{input.style.borderColor='#ddd';input.style.background='white';}
+function updTotal(name, val, input) {
+  const v = val ? parseInt(val) : '';
+  ST.totals[name] = v;
+  if(v){ input.style.borderColor='#1a5c2a'; input.style.background='#f0f9f2'; }
+  else { input.style.borderColor='#ddd';    input.style.background='white'; }
   updTotals(); updLiveHcp();
-  scheduleSync();
+  syncTotal(name);           // write total immediately
 }
 window.updTotal = updTotal;
 
@@ -1261,9 +1343,23 @@ function doCalc() {
 }
 window.doCalc = doCalc;
 
-// ── SERVICE WORKER ────────────────────────────────────────────────────────────
+// ── SERVICE WORKER — kill old caches, register fresh ──────────────────────────
 if('serviceWorker' in navigator) {
-  window.addEventListener('load',()=>navigator.serviceWorker.register('/golf-scorer/service-worker.js').catch(()=>{}));
+  // First unregister ALL old service workers to clear bad caches
+  navigator.serviceWorker.getRegistrations().then(regs => {
+    regs.forEach(reg => {
+      console.log('Unregistering old SW:', reg.scope);
+      reg.unregister();
+    });
+  });
+  // Then register fresh after a short delay
+  window.addEventListener('load', () => {
+    setTimeout(() => {
+      navigator.serviceWorker.register('/golf-scorer/service-worker.js')
+        .then(r => console.log('SW registered v13:', r.scope))
+        .catch(e => console.warn('SW error:', e));
+    }, 1000);
+  });
 }
 
 // ── GPS ENGINE ────────────────────────────────────────────────────────────────
