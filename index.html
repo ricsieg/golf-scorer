@@ -179,7 +179,7 @@ table.sc .ptsrow td:first-child{background:#f8fff8}
   <div class="topbar-logo">⛳</div>
   <div>
     <h1>Rob's Golf Mob</h1>
-    <p id="topbar-sub">Melbourne Social Golf · v16</p>
+    <p id="topbar-sub">Melbourne Social Golf · v17</p>
   </div>
   <div id="conn-status" class="offline">Offline</div>
 </div>
@@ -766,24 +766,45 @@ function init() {
     ST.players.push({name, hcp:MOB_OLD_HCP[name]||0, liveHcp:h.idx});
   });
   renderPlayers(); renderHcp();
-  // Load history from Firebase on startup
   loadHistory();
-  // Track Firebase connection — flush pending queue on reconnect
+
+  // ── Firebase connection with detailed error reporting ──
+  const connEl = document.getElementById('conn-status');
+  connEl.textContent = 'Connecting...';
+  connEl.className = 'offline';
+
+  // Test Firebase with a direct read — catches rules/network errors
+  get(ref(db, '.info/connected')).then(snap => {
+    console.log('Firebase ping result:', snap.val());
+  }).catch(err => {
+    console.error('Firebase error:', err.code, err.message);
+    connEl.textContent = '⚠️ ' + (err.code || 'Error');
+    connEl.title = err.message;
+    // Show error on screen so we can diagnose
+    showSync('error', 'Firebase: ' + (err.code || err.message));
+  });
+
+  // Main connection listener
   onValue(ref(db, '.info/connected'), snap => {
-    const el = document.getElementById('conn-status');
     isConnected = !!snap.val();
     if(isConnected) {
-      el.textContent='🟢 Live'; el.className='online';
-      // Flush any queued scores immediately on reconnect
+      connEl.textContent='🟢 Live'; connEl.className='online';
       if(Object.keys(SYNC_QUEUE).length > 0) {
         showSync('syncing', 'Reconnected — syncing missed scores...');
         flushQueue();
       }
     } else {
-      el.textContent='Offline'; el.className='offline';
+      connEl.textContent='Offline'; connEl.className='offline';
     }
+  }, err => {
+    // This fires if rules block the .info/connected path
+    console.error('Connection listener error:', err);
+    connEl.textContent='⚠️ Rules error';
+    connEl.className='offline';
+    showSync('error', 'DB rules error: ' + err.code);
   });
-  startSyncInterval();  // background retry every 3 seconds
+
+  startSyncInterval();
   checkActiveRound();
 }
 
