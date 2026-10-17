@@ -41,7 +41,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .round-selector{display:flex;gap:8px;margin-bottom:12px;align-items:center}
 .round-selector select{flex:1;padding:9px 11px;font-size:14px;border:1px solid #ddd;border-radius:8px;background:white;color:#1a1a1a;-webkit-appearance:none}
 /* courses */
-.course-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px}
+.course-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:14px}
 .course-btn{padding:10px 6px;border:1.5px solid #e0e0e0;border-radius:10px;background:white;cursor:pointer;text-align:center;-webkit-tap-highlight-color:transparent}
 .course-btn.sel{border-color:#1a5c2a;background:#f0f9f2}
 .c-name{font-size:11px;font-weight:700;color:#1a1a1a}
@@ -143,7 +143,7 @@ table.sc .ptsrow td:first-child{background:#f8fff8}
 .comp-tbl td:not(:first-child){text-align:center}
 .hist-row{display:flex;align-items:flex-start;gap:10px;padding:11px 0;border-bottom:1px solid #f5f5f5}
 .badge-c{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600}
-.bg{background:#e8f5ea;color:#1a5c2a}.bm{background:#e8f0fb;color:#1855a5}.bd{background:#fef3db;color:#7a4f00}
+.bg{background:#e8f5ea;color:#1a5c2a}.bm{background:#e8f0fb;color:#1855a5}.bd{background:#fef3db;color:#7a4f00}.bw{background:#fce8f0;color:#8a1a4a}
 .note{font-size:11px;color:#aaa;font-style:italic;margin-top:8px;line-height:1.5}
 .alert-info{background:#e8f0fb;color:#1855a5;padding:10px 13px;border-radius:8px;font-size:12px;margin-bottom:12px;line-height:1.5}
 .empty{text-align:center;padding:2.5rem;color:#ccc;font-size:14px}
@@ -179,7 +179,7 @@ table.sc .ptsrow td:first-child{background:#f8fff8}
   <div class="topbar-logo">⛳</div>
   <div>
     <h1>Rob's Golf Mob</h1>
-    <p id="topbar-sub">Melbourne Social Golf · v21</p>
+    <p id="topbar-sub">Melbourne Social Golf · v23</p>
   </div>
   <div id="conn-status" class="offline">Offline</div>
 </div>
@@ -212,6 +212,9 @@ table.sc .ptsrow td:first-child{background:#f8fff8}
       </div>
       <div class="course-btn" id="cb-dorset" onclick="selCourse('dorset')">
         <div class="c-name">Dorset Golf</div><div class="c-sub">9 or 18 holes</div>
+      </div>
+      <div class="course-btn" id="cb-waterford" onclick="selCourse('waterford')">
+        <div class="c-name">Waterford Valley</div><div class="c-sub">9 or 18 holes</div>
       </div>
     </div>
     <div class="form-row">
@@ -328,6 +331,8 @@ table.sc .ptsrow td:first-child{background:#f8fff8}
           <option value="morack18">Morack Golf (18h)</option>
           <option value="dorset9">Dorset Golf (9h)</option>
           <option value="dorset18">Dorset Golf (18h)</option>
+          <option value="waterford9">Waterford Valley (9h)</option>
+          <option value="waterford18">Waterford Valley (18h)</option>
         </select>
       </div>
     </div>
@@ -511,6 +516,24 @@ const COURSES = {
       {lat:-37.8006,lng:145.2895},{lat:-37.7994,lng:145.2882},{lat:-37.7982,lng:145.2870},
       {lat:-37.7970,lng:145.2882},{lat:-37.7982,lng:145.2895},{lat:-37.7994,lng:145.2882}
     ]
+  },
+  waterford: {
+    name: 'Waterford Valley',
+    // Official scorecard — par 72 total, front 9 par 36, back 9 par 36
+    par: [4,3,4,4,3,5,4,5,4, 4,5,4,3,5,4,4,3,4],
+    // Men's stroke index — front: H1=14,H2=6,H3=12,H4=8,H5=16,H6=3,H7=13,H8=5,H9=9
+    // Men's stroke index — back:  H10=7,H11=11,H12=18,H13=4,H14=17,H15=15,H16=2,H17=10,H18=1
+    si:  [14,6,12,8,16,3,13,5,9, 7,11,18,4,17,15,2,10,1],
+    // Blue tees: scratch rating 71, slope 123 (confirmed)
+    r9:35.5, s9:123, r18:71.0, s18:123,
+    greens:[
+      {lat:-37.8820,lng:145.1520},{lat:-37.8832,lng:145.1535},{lat:-37.8845,lng:145.1548},
+      {lat:-37.8858,lng:145.1535},{lat:-37.8870,lng:145.1520},{lat:-37.8858,lng:145.1505},
+      {lat:-37.8845,lng:145.1492},{lat:-37.8832,lng:145.1505},{lat:-37.8820,lng:145.1492},
+      {lat:-37.8808,lng:145.1505},{lat:-37.8795,lng:145.1520},{lat:-37.8808,lng:145.1535},
+      {lat:-37.8820,lng:145.1550},{lat:-37.8835,lng:145.1562},{lat:-37.8848,lng:145.1548},
+      {lat:-37.8860,lng:145.1535},{lat:-37.8848,lng:145.1520},{lat:-37.8835,lng:145.1508}
+    ]
   }
 };
 
@@ -590,17 +613,18 @@ function queueSync(path, value) {
 }
 
 async function flushQueue() {
-  if(!isConnected || !ST.roundId) return;
+  if(!ST.roundId) return;
   const pending = Object.values(SYNC_QUEUE);
   if(!pending.length) return;
 
   for(const item of pending) {
     try {
       await set(ref(db, item.path), item.value);
-      delete SYNC_QUEUE[item.path];  // confirmed — remove from queue
+      delete SYNC_QUEUE[item.path];
     } catch(e) {
       item.retries++;
-      if(item.retries > 10) {
+      console.warn(`Sync retry ${item.retries} for ${item.path}:`, e.code);
+      if(item.retries > 15) {
         console.warn('Giving up on:', item.path);
         delete SYNC_QUEUE[item.path];
       }
@@ -706,55 +730,77 @@ async function pushToFirebase() {
 
 
 // Check if there's an active round in Firebase today
-async function checkActiveRound() {
-  try {
-    const snap = await get(ref(db, 'activeRound'));
+// Live listener for active round — updates banner in real time as rounds start/end
+function checkActiveRound() {
+  onValue(ref(db, 'activeRound'), snap => {
     const data = snap.val();
-    if(!data) return;
+    const banner = document.getElementById('active-round-banner');
     const today = new Date().toISOString().split('T')[0];
-    if(data.date === today && data.roundId) {
-      const banner = document.getElementById('active-round-banner');
+    // Don't show join banner if already in a round
+    if(ST.roundId) { banner.style.display='none'; return; }
+    if(data && data.date === today && data.roundId && data.status !== 'complete') {
       document.getElementById('join-text').textContent =
-        `Active round: ${COURSES[data.course]?.name||data.course} · ${data.date} · ${data.playerCount||'?'} players`;
+        `Active round: ${COURSES[data.course]?.name||data.course} · ${data.holeMode==='9f'?'Front 9':data.holeMode==='9b'?'Back 9':'18 holes'} · ${data.playerCount||'?'} players`;
       banner.style.display = 'block';
       window._pendingRoundId = data.roundId;
       window._pendingRoundMeta = data;
+    } else {
+      banner.style.display = 'none';
+      window._pendingRoundId = null;
+      window._pendingRoundMeta = null;
     }
-  } catch(e) {}
+  }, err => console.warn('activeRound listener:', err.code));
 }
 
 async function joinActiveRound() {
   const id = window._pendingRoundId;
   const meta = window._pendingRoundMeta;
-  if(!id || !meta) return;
+  if(!id || !meta) { alert('No active round found — ask the host to start the round first'); return; }
+  const btn = document.getElementById('join-btn');
+  btn.textContent = 'Joining...';
+  btn.disabled = true;
   try {
     const snap = await get(ref(db, `rounds/${id}`));
     const data = snap.val();
-    if(!data) { alert('Round no longer available'); return; }
-    // Load round config from Firebase
-    ST.roundId = id;
-    ST.isHost = false;
-    ST.course = meta.course || 'gardiners';
-    ST.holeMode = meta.holeMode || '9f';
-    ST.format = meta.format || 'stroke';
-    ST.date = meta.date || '';
-    ST.holes = resolveHolesFor(ST.holeMode);
-    ST.players = meta.players || [];
+    if(!data) { alert('Round no longer available'); btn.textContent='📡 Join live round'; btn.disabled=false; return; }
+
+    // Load full round state from Firebase
+    ST.roundId   = id;
+    ST.isHost    = false;
+    ST.course    = meta.course   || 'gardiners';
+    ST.holeMode  = meta.holeMode || '9f';
+    ST.format    = meta.format   || 'stroke';
+    ST.date      = meta.date     || '';
+    ST.holes     = resolveHolesFor(ST.holeMode);
+    ST.players   = (meta.players || []).map(p => ({
+      name: p.name, hcp: p.hcp, liveHcp: p.liveHcp||p.hcp
+    }));
     ST.scores = {};
     ST.totals = {};
-    ST.saved = false;
+    ST.saved  = false;
+
+    // Load existing scores from Firebase
     ST.players.forEach(p => {
-      ST.scores[p.name] = data.scores?.[p.name] || new Array(ST.holes.length).fill('');
-      ST.totals[p.name] = data.totals?.[p.name] || '';
+      const fbScores = data.scores?.[p.name];
+      ST.scores[p.name] = Array.isArray(fbScores)
+        ? fbScores.map(v => v===null||v===undefined ? '' : v)
+        : new Array(ST.holes.length).fill('');
+      ST.totals[p.name] = data.totals?.[p.name] ?? '';
     });
-    // Sync course selector UI
+
     selCourse(ST.course);
     document.getElementById('active-round-banner').style.display='none';
     buildSC();
     subscribeToRound(id);
     sw('scoring');
     document.getElementById('sc-live-label').innerHTML = '<span class="live-dot"></span> Live sync on';
-  } catch(e) { alert('Could not join round: ' + e.message); }
+    showSync('synced', '✅ Joined live round — scores syncing');
+  } catch(e) {
+    console.error('Join round error:', e);
+    alert('Could not join: ' + e.message);
+    btn.textContent='📡 Join live round';
+    btn.disabled=false;
+  }
 }
 
 // ── INIT ──────────────────────────────────────────────────────────────────────
@@ -1241,7 +1287,7 @@ function renderHist() {
     el.innerHTML='<div class="empty">No rounds saved yet</div>';
     return;
   }
-  const bmap={gardiners:'bg',morack:'bm',dorset:'bd'};
+  const bmap={gardiners:'bg',morack:'bm',dorset:'bd',waterford:'bw'};
   const hmap={'9f':'Front 9','9b':'Back 9','18':'18 holes'};
   el.innerHTML=ST.history.map(r=>{
     const s=[...r.players].sort((a,b)=>r.format==='stableford'?b.sf-a.sf:a.net-b.net),w=s[0];
