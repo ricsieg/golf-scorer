@@ -9,9 +9,9 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Golf Mob">
-<link rel="manifest" href="./manifest.webmanifest">
-<link rel="apple-touch-icon" href="./icons/icon-152.png">
-<link rel="icon" type="image/png" sizes="96x96" href="./icons/icon-96.png">
+<link rel="manifest" href="./manifest.webmanifest?v=25">
+<link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png?v=25">
+<link rel="icon" type="image/png" sizes="32x32" href="./favicon-32.png?v=25">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f0f2ec;color:#1a1a1a;min-height:100vh}
@@ -179,7 +179,7 @@ table.sc .ptsrow td:first-child{background:#f8fff8}
   <div class="topbar-logo">⛳</div>
   <div>
     <h1>Rob's Golf Mob</h1>
-    <p id="topbar-sub">Melbourne Social Golf · v23</p>
+    <p id="topbar-sub">Melbourne Social Golf · v25</p>
   </div>
   <div id="conn-status" class="offline">Offline</div>
 </div>
@@ -239,6 +239,7 @@ table.sc .ptsrow td:first-child{background:#f8fff8}
       </select>
     </div>
   </div>
+  <div id="no-live-note" style="display:none;font-size:12px;color:#888;text-align:center;margin-bottom:8px">No live round yet — the host taps Start below. If you're joining, this page will show a Join button automatically.</div>
   <button class="btn btn-green btn-full" onclick="startRound()" style="margin-bottom:12px">⛳ Start round + go live</button>
   <div class="card">
     <div class="ct">Players — tap ▲▼ to reorder</div>
@@ -666,7 +667,12 @@ function subscribeToRound(roundId) {
     if(data.scores) {
       Object.keys(data.scores).forEach(name => {
         if(!ST.scores[name]) ST.scores[name] = new Array(ST.holes.length).fill('');
-        data.scores[name].forEach((val, li) => {
+        const remote = data.scores[name];
+        const remoteArr = Array.isArray(remote)
+          ? remote
+          : Array.from({length: ST.holes.length}, (_, i) => (remote && remote[i] !== undefined) ? remote[i] : '');
+        remoteArr.forEach((rv, li) => {
+          const val = (rv === null || rv === undefined) ? '' : rv;
           // Only update if different AND this device isn't actively editing this cell
           const input = document.querySelector(`input[aria-label="Hole ${ST.holes[li]+1} score for ${name}"]`);
           const isFocused = input && document.activeElement === input;
@@ -735,10 +741,12 @@ function checkActiveRound() {
   onValue(ref(db, 'activeRound'), snap => {
     const data = snap.val();
     const banner = document.getElementById('active-round-banner');
-    const today = new Date().toISOString().split('T')[0];
     // Don't show join banner if already in a round
     if(ST.roundId) { banner.style.display='none'; return; }
-    if(data && data.date === today && data.roundId && data.status !== 'complete') {
+    const fresh = data && data.createdAt && (Date.now() - data.createdAt) < 18*60*60*1000;
+    const note = document.getElementById('no-live-note');
+    if(data && fresh && data.roundId && data.status !== 'complete') {
+      if(note) note.style.display='none';
       document.getElementById('join-text').textContent =
         `Active round: ${COURSES[data.course]?.name||data.course} · ${data.holeMode==='9f'?'Front 9':data.holeMode==='9b'?'Back 9':'18 holes'} · ${data.playerCount||'?'} players`;
       banner.style.display = 'block';
@@ -746,6 +754,7 @@ function checkActiveRound() {
       window._pendingRoundMeta = data;
     } else {
       banner.style.display = 'none';
+      if(note) note.style.display='block';
       window._pendingRoundId = null;
       window._pendingRoundMeta = null;
     }
@@ -865,6 +874,9 @@ function sw(tab) {
   if(tab==='handicap') renderHcp();
   if(tab==='results')  { renderResults(); updateSaveButton(); }
   if(tab==='gps')      { initGps(); }
+  if(tab==='scoring' && !ST.holes.length) {
+    document.getElementById('sc-body').innerHTML = '<tr><td style="padding:20px;color:#888;font-size:13px;text-align:left">No round started yet. Go to Setup: the host taps Start round, everyone else taps Join live round.</td></tr>';
+  }
 }
 window.sw = sw;
 
@@ -937,6 +949,11 @@ async function startRound() {
   ST.format  = document.getElementById('format-sel').value;
   ST.date    = document.getElementById('round-date').value;
   if(!ST.players.length){alert('Add at least one player');return;}
+  if(window._pendingRoundId && !ST.roundId) {
+    if(confirm('A live round is already running.\n\nOK = join it (recommended)\nCancel = start a separate new round')) {
+      joinActiveRound(); return;
+    }
+  }
   ST.saved   = false;
   ST.isHost  = true;
   ST.players.forEach(p=>{
@@ -1255,7 +1272,10 @@ async function saveHistory() {
   localStorage.setItem('rgm_h3', JSON.stringify(ST.history.slice(0,50)));
 
   ST.saved=true; updateSaveButton();
-  if(ST.roundId) set(ref(db,`rounds/${ST.roundId}/status`),'complete').catch(()=>{});
+  if(ST.roundId) {
+    set(ref(db,`rounds/${ST.roundId}/status`),'complete').catch(()=>{});
+    if(ST.isHost) set(ref(db,'activeRound/status'),'complete').catch(()=>{});
+  }
   renderHcp(); sw('history');
 }
 window.saveHistory = saveHistory;
