@@ -179,7 +179,7 @@ table.sc .ptsrow td:first-child{background:#f8fff8}
   <div class="topbar-logo">⛳</div>
   <div>
     <h1>Rob's Golf Mob</h1>
-    <p id="topbar-sub">Melbourne Social Golf · v25</p>
+    <p id="topbar-sub">Melbourne Social Golf · v27</p>
   </div>
   <div id="conn-status" class="offline">Offline</div>
 </div>
@@ -195,6 +195,12 @@ table.sc .ptsrow td:first-child{background:#f8fff8}
 
 <!-- SETUP -->
 <div class="page on" id="page-setup">
+  <div class="card" id="resume-card" style="display:none;background:#fff3cd;border:1.5px solid #f5c842">
+    <div style="font-size:14px;font-weight:700;color:#7a4f00">🔄 Unfinished round found on this phone</div>
+    <div id="resume-text" style="font-size:12px;color:#7a4f00;margin:6px 0 10px"></div>
+    <button class="btn btn-green btn-full" onclick="resumeRound(false)">Resume this round</button>
+    <button class="btn btn-outline btn-full" style="margin-top:8px" onclick="discardSnapshot()">Discard it</button>
+  </div>
   <div class="card" id="active-round-banner" style="display:none">
     <div class="join-banner" id="join-info">
       <span id="join-text"></span>
@@ -254,6 +260,11 @@ table.sc .ptsrow td:first-child{background:#f8fff8}
 
 <!-- SCORING -->
 <div class="page" id="page-scoring">
+  <div id="switch-banner" class="card" style="display:none;background:#fff3cd;border:1.5px solid #f5c842">
+    <div id="switch-text" style="font-size:13px;font-weight:700;color:#7a4f00;margin-bottom:10px"></div>
+    <button class="btn btn-green btn-full" onclick="joinActiveRound()">Switch to the live round</button>
+  </div>
+  <div id="local-saved" class="note" style="text-align:center;margin:0 0 8px"></div>
   <div class="card" id="sc-info" style="display:none">
     <div style="display:flex;justify-content:space-between;align-items:center">
       <div>
@@ -302,6 +313,7 @@ table.sc .ptsrow td:first-child{background:#f8fff8}
   </div>
   <div style="display:flex;gap:8px;margin-top:4px">
     <button class="btn btn-green btn-sm" id="save-btn" onclick="saveHistory()">💾 Save round</button>
+    <button class="btn btn-outline btn-sm" onclick="shareScores()">📤 Share scores</button>
     <button class="btn btn-outline btn-sm" onclick="sw('scoring')">← Back</button>
   </div>
 </div>
@@ -363,6 +375,12 @@ table.sc .ptsrow td:first-child{background:#f8fff8}
       <button class="btn btn-outline btn-sm" onclick="clearHistory()">🗑 Clear</button>
     </div>
     <div id="hist-body"></div>
+  </div>
+  <div class="card">
+    <div class="ct">Recover a round from the cloud</div>
+    <div style="font-size:12px;color:#888;margin-bottom:10px">Every live round is copied to the cloud as it is scored. If a phone locked up, or a round was never saved, find it here.</div>
+    <button class="btn btn-outline btn-full" onclick="findCloudRounds()">🔍 Find recent rounds</button>
+    <div id="recover-list" style="margin-top:10px"></div>
   </div>
 </div>
 
@@ -595,64 +613,73 @@ let GPS = {
 // ── SYNC HELPERS ──────────────────────────────────────────────────────────────
 function showSync(state, msg) {
   const bar = document.getElementById('sync-bar');
+  bar.style.display = '';                 // clear any earlier hide so the bar can reappear
   bar.className = state; bar.textContent = msg;
-  if(state==='synced') setTimeout(()=>{ bar.style.display='none'; }, 2000);
+  clearTimeout(showSync._t);
+  if(state==='synced') showSync._t = setTimeout(()=>{ bar.style.display='none'; }, 2000);
 }
 
 // ── RELIABLE SYNC ENGINE ──────────────────────────────────────────────────────
-// Queues every score change and retries until confirmed written to Firebase.
-// Each score is written individually so one failure doesn't block others.
+// Every score is its own small write. The Firebase SDK keeps writes in order, holds them
+// while offline and sends them when the signal returns, so we just track what is still
+// waiting, and re-send only writes that were actually rejected.
+const fk   = n => String(n).replace(/[.#$\[\]\/]/g,'_');                     // Firebase-safe key from a player name
+const escA = s => String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 
-const SYNC_QUEUE = {};      // {key: {path, value, retries}}
-let syncIntervalId = null;
-let isConnected = false;
+const SYNC_QUEUE = {};   // rejected writes waiting to retry: {path:{path,value,tries}}
+const DIRTY = {};        // writes not yet confirmed by the server (also saved on the phone)
+const SEQ = {};          // newest write number per path (so an old failure can't resurrect a stale value)
+let inflight = 0, syncIntervalId = null, isConnected = false;
 
-function queueSync(path, value) {
-  // Add to queue — overwrites any pending write to same path
-  SYNC_QUEUE[path] = { path, value, retries: 0, ts: Date.now() };
-  flushQueue();
-}
-
-async function flushQueue() {
-  if(!ST.roundId) return;
-  const pending = Object.values(SYNC_QUEUE);
-  if(!pending.length) return;
-
-  for(const item of pending) {
-    try {
-      await set(ref(db, item.path), item.value);
-      delete SYNC_QUEUE[item.path];
-    } catch(e) {
-      item.retries++;
-      console.warn(`Sync retry ${item.retries} for ${item.path}:`, e.code);
-      if(item.retries > 15) {
-        console.warn('Giving up on:', item.path);
-        delete SYNC_QUEUE[item.path];
-      }
+function writeNow(path, value) {
+  const seq   = (SEQ[path]||0) + 1; SEQ[path] = seq;
+  const tries = SYNC_QUEUE[path] ? SYNC_QUEUE[path].tries : 0;
+  delete SYNC_QUEUE[path];                                  // a newer write supersedes an older failed one
+  DIRTY[path] = value; persistRound();
+  inflight++; updateSyncIndicator();
+  let p; try { p = Promise.resolve(set(ref(db, path), value)); } catch(e) { p = Promise.reject(e); }
+  p.then(() => { if(SEQ[path] === seq) { delete DIRTY[path]; persistRound(); } }).catch(e => {
+    if(SEQ[path] === seq) {
+      SYNC_QUEUE[path] = { path, value, tries: tries+1 };
+      console.warn('write rejected', path, e && (e.code||e.message));
     }
-  }
-  updateSyncIndicator();
+  }).finally(() => { inflight--; updateSyncIndicator(); });
 }
+function queueSync(path, value) { writeNow(path, value); }
 
 function updateSyncIndicator() {
-  const pending = Object.keys(SYNC_QUEUE).length;
-  const bar = document.getElementById('sync-bar');
-  if(pending === 0) {
-    bar.className = 'synced';
-    bar.textContent = '✓ All scores saved';
-    setTimeout(()=>{ bar.style.display='none'; }, 2000);
-  } else {
-    bar.className = 'syncing';
-    bar.textContent = `Saving ${pending} score${pending>1?'s':''}...`;
-  }
+  const failed = Object.keys(SYNC_QUEUE).length;
+  if(inflight > 0)      showSync('syncing', inflight>1 ? `Saving ${inflight} scores…` : 'Saving…');
+  else if(failed > 0)   showSync('error', `⚠ ${failed} score${failed>1?'s':''} not saved yet — retrying`);
+  else if(ST.roundId)   showSync('synced', '✓ All scores saved');
 }
-
-// Start a background flush every 3 seconds to catch anything that failed
+function retryFailed() { Object.values(SYNC_QUEUE).forEach(it => { if(it.tries < 20) writeNow(it.path, it.value); }); }
+function flushQueue()  { retryFailed(); }
 function startSyncInterval() {
   if(syncIntervalId) clearInterval(syncIntervalId);
-  syncIntervalId = setInterval(() => {
-    if(Object.keys(SYNC_QUEUE).length > 0) flushQueue();
-  }, 3000);
+  syncIntervalId = setInterval(retryFailed, 4000);
+  window.addEventListener('online', retryFailed);
+}
+
+// cell lookup that is safe for names containing quotes, apostrophes, dots etc.
+function findCell(name, hole) {
+  for(const el of document.querySelectorAll('input.score-input[data-h]'))
+    if(el.dataset.p === name && el.dataset.h === String(hole)) return el;
+  return null;
+}
+function findTot(name) {
+  for(const el of document.querySelectorAll('input.tot-input'))
+    if(el.dataset.p === name) return el;
+  return null;
+}
+function toArr(remote, n) {                                  // Firebase may hand back an object when slots are empty
+  if(Array.isArray(remote)) return remote;
+  return Array.from({length:n}, (_, i) => (remote && remote[i] !== undefined) ? remote[i] : '');
+}
+function updateLiveLabel() {
+  const el = document.getElementById('sc-live-label'); if(!el || !ST.roundId) return;
+  const t = ST.lastRemoteAt ? new Date(ST.lastRemoteAt).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'}) : '…';
+  el.innerHTML = `<span class="live-dot"></span> Live · ${ST.isHost?'host':'joined'} · synced ${t}`;
 }
 
 function subscribeToRound(roundId) {
@@ -660,156 +687,320 @@ function subscribeToRound(roundId) {
   const roundRef = ref(db, `rounds/${roundId}`);
   ST.fbListener = roundRef;
   onValue(roundRef, snap => {
+    if(ST.roundId !== roundId) return;                       // listener from a round we have left
     const data = snap.val();
     if(!data) return;
+    ST.lastRemoteAt = Date.now(); updateLiveLabel();
     let changed = false;
-
-    if(data.scores) {
-      Object.keys(data.scores).forEach(name => {
-        if(!ST.scores[name]) ST.scores[name] = new Array(ST.holes.length).fill('');
-        const remote = data.scores[name];
-        const remoteArr = Array.isArray(remote)
-          ? remote
-          : Array.from({length: ST.holes.length}, (_, i) => (remote && remote[i] !== undefined) ? remote[i] : '');
-        remoteArr.forEach((rv, li) => {
-          const val = (rv === null || rv === undefined) ? '' : rv;
-          // Only update if different AND this device isn't actively editing this cell
-          const input = document.querySelector(`input[aria-label="Hole ${ST.holes[li]+1} score for ${name}"]`);
-          const isFocused = input && document.activeElement === input;
-          if(!isFocused && val !== ST.scores[name][li]) {
-            ST.scores[name][li] = val;
-            changed = true;
-            if(input) {
-              input.value = val || '';
-              input.classList.add('remote-update');
-              setTimeout(()=>input.classList.remove('remote-update'), 1000);
-              hlS(input, COURSES[ST.course].par[ST.holes[li]]);
-            }
-          }
-        });
-      });
-    }
-    if(data.totals) {
-      Object.keys(data.totals).forEach(name => {
-        if(data.totals[name] !== ST.totals[name]) {
-          ST.totals[name] = data.totals[name];
-          changed = true;
+    ST.players.forEach(pl => {
+      if(!ST.scores[pl.name]) ST.scores[pl.name] = new Array(ST.holes.length).fill('');
+      const arr = toArr(data.scores && data.scores[fk(pl.name)], ST.holes.length);
+      for(let li=0; li<ST.holes.length; li++) {
+        const rv = arr[li], val = (rv===null||rv===undefined) ? '' : rv;
+        if(val === ST.scores[pl.name][li]) continue;
+        if(Object.prototype.hasOwnProperty.call(DIRTY, `rounds/${roundId}/scores/${fk(pl.name)}/${li}`)) continue;
+        const input = findCell(pl.name, ST.holes[li]+1);
+        if(input && document.activeElement === input) continue;       // don't overwrite a cell being typed in
+        ST.scores[pl.name][li] = val; changed = true;
+        if(input) {
+          input.value = val;
+          input.classList.add('remote-update');
+          setTimeout(()=>input.classList.remove('remote-update'), 1000);
+          hlS(input, COURSES[ST.course].par[ST.holes[li]]);
         }
-      });
-    }
-    if(changed) { updTotals(); updLiveHcp(); renderResults(); }
+      }
+      const rt = data.totals && data.totals[fk(pl.name)];
+      const tv = (rt===undefined||rt===null) ? '' : rt;
+      if(tv !== ST.totals[pl.name] && !Object.prototype.hasOwnProperty.call(DIRTY, `rounds/${roundId}/totals/${fk(pl.name)}`)) {
+        const ti = findTot(pl.name);
+        if(!(ti && document.activeElement === ti)) {
+          ST.totals[pl.name] = tv; changed = true;
+          if(ti) {
+            ti.value = tv;
+            ti.style.borderColor = tv==='' ? '#ddd' : '#1a5c2a';
+            ti.style.background  = tv==='' ? 'white' : '#f0f9f2';
+          }
+        }
+      }
+    });
+    if(changed) { updTotals(); updLiveHcp(); renderResults(); checkAutoAdvanceHole(); }
     document.getElementById('lb-live-badge').style.display = 'inline';
+  }, err => showSync('error', 'Live updates blocked: ' + (err.code||err.message)));
+}
+
+function syncScore(playerName, holeLocalIdx) {
+  if(!ST.roundId) return;
+  const val = ST.scores[playerName][holeLocalIdx];
+  writeNow(`rounds/${ST.roundId}/scores/${fk(playerName)}/${holeLocalIdx}`, val === '' ? null : val);
+}
+function syncTotal(playerName) {
+  if(!ST.roundId) return;
+  const val = ST.totals[playerName];
+  writeNow(`rounds/${ST.roundId}/totals/${fk(playerName)}`, (val === '' || val === undefined) ? null : val);
+}
+// Used by Reset: rewrite everyone's cells for this round
+function pushToFirebase() {
+  if(!ST.roundId) return;
+  ST.players.forEach(p => {
+    writeNow(`rounds/${ST.roundId}/scores/${fk(p.name)}`, ST.scores[p.name]);
+    writeNow(`rounds/${ST.roundId}/totals/${fk(p.name)}`, null);
   });
 }
 
-// Write a single score to Firebase immediately with retry
-function syncScore(playerName, holeLocalIdx) {
-  if(!ST.roundId) return;
-  const path = `rounds/${ST.roundId}/scores/${playerName}/${holeLocalIdx}`;
-  const val = ST.scores[playerName][holeLocalIdx];
-  queueSync(path, val === '' ? null : val);
-}
-
-function syncTotal(playerName) {
-  if(!ST.roundId) return;
-  const path = `rounds/${ST.roundId}/totals/${playerName}`;
-  const val = ST.totals[playerName];
-  queueSync(path, val === '' ? null : val);
-}
-
-// Old pushToFirebase — push everything at once (used on round start/reset)
-async function pushToFirebase() {
-  if(!ST.roundId) return;
+// ── PERMANENT CAPTURE ─────────────────────────────────────────────────────────
+// A full copy of the live round (scores, totals, players, and any writes the server has not
+// confirmed yet) is saved on the phone after every change. If the app locks up or the phone
+// reloads it, the round comes straight back and the unsent scores are sent again.
+const LIVE_KEY = 'rgm_live_round_v1';
+function persistRound() {
+  if(!ST.holes || !ST.holes.length || !ST.players.length) return;
   try {
-    showSync('syncing','Syncing all scores...');
-    await set(ref(db, `rounds/${ST.roundId}/scores`), ST.scores);
-    await set(ref(db, `rounds/${ST.roundId}/totals`), ST.totals);
-    showSync('synced','✓ Scores synced');
-  } catch(e) {
-    showSync('error','Sync failed — will retry automatically');
-    // Add everything to queue for retry
-    if(ST.scores) Object.keys(ST.scores).forEach(name => {
-      ST.scores[name].forEach((val,li) => queueSync(`rounds/${ST.roundId}/scores/${name}/${li}`, val||null));
-    });
+    localStorage.setItem(LIVE_KEY, JSON.stringify({
+      v:1, savedAt:Date.now(), roundId:ST.roundId, isHost:ST.isHost, published:ST.published, createdAt:ST.createdAt,
+      course:ST.course, holeMode:ST.holeMode, format:ST.format, date:ST.date, holes:ST.holes,
+      players:ST.players, scores:ST.scores, totals:ST.totals, saved:ST.saved, dirty:DIRTY
+    }));
+    const el = document.getElementById('local-saved');
+    if(el) el.textContent = '💾 Backed up on this phone ' + new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  } catch(e) { /* storage full or blocked — cloud copy still works */ }
+}
+function readSnapshot() {
+  try {
+    const sn = JSON.parse(localStorage.getItem(LIVE_KEY) || 'null');
+    if(!sn || sn.v !== 1 || !sn.players || !sn.holes) return null;
+    if(Date.now() - sn.savedAt > 36*3600*1000) return null;
+    return sn;
+  } catch(e) { return null; }
+}
+function snapScoreCount(sn) {
+  let n = 0;
+  Object.values(sn.scores||{}).forEach(a => (a||[]).forEach(v => { if(v!==''&&v!==null&&v!==undefined) n++; }));
+  Object.values(sn.totals||{}).forEach(v => { if(v!==''&&v!==null&&v!==undefined) n++; });
+  return n;
+}
+function hasProgress(sn) { return !!(sn.roundId || snapScoreCount(sn) > 0); }
+const modeName = m => m==='9f' ? 'Front 9' : m==='9b' ? 'Back 9' : '18 holes';
+
+function showResumeCard(sn) {
+  const t = new Date(sn.savedAt).toLocaleString([], {weekday:'short',hour:'2-digit',minute:'2-digit'});
+  document.getElementById('resume-text').textContent =
+    `${COURSES[sn.course]?.name||sn.course} · ${modeName(sn.holeMode)} · ${sn.players.length} players · ${snapScoreCount(sn)} scores · last saved ${t}`;
+  document.getElementById('resume-card').style.display = 'block';
+}
+function resumeRound(auto) {
+  const sn = readSnapshot(); if(!sn) return;
+  ST.roundId = sn.roundId || null; ST.isHost = !!sn.isHost; ST.published = sn.published !== false; ST.createdAt = sn.createdAt || Date.now();
+  ST.course = sn.course; ST.holeMode = sn.holeMode; ST.format = sn.format; ST.date = sn.date;
+  ST.holes = sn.holes; ST.players = sn.players; ST.scores = sn.scores; ST.totals = sn.totals;
+  ST.saved = !!sn.saved; ST.lastRemoteAt = 0;
+  Object.keys(DIRTY).forEach(k => delete DIRTY[k]);
+  Object.assign(DIRTY, sn.dirty || {});
+  selCourse(ST.course);
+  document.getElementById('holes-sel').value  = ST.holeMode;
+  document.getElementById('format-sel').value = ST.format;
+  document.getElementById('resume-card').style.display = 'none';
+  renderPlayers(); buildSC();
+  if(ST.roundId) {
+    subscribeToRound(ST.roundId);
+    Object.entries(sn.dirty || {}).forEach(([path, val]) => writeNow(path, val));    // send again whatever never got confirmed
+    if(ST.isHost && !ST.published) republishRound();
+    updateLiveLabel();
   }
+  sw('scoring');
+  showSync('synced', auto ? '🔄 Your round was restored' : '🔄 Round resumed');
+}
+function discardSnapshot() {
+  try { localStorage.removeItem(LIVE_KEY); } catch(e) {}
+  document.getElementById('resume-card').style.display = 'none';
+}
+function tryAutoResume() {
+  const sn = readSnapshot();
+  if(!sn || sn.saved || !hasProgress(sn)) return;
+  if(Date.now() - sn.savedAt < 5*3600*1000) resumeRound(true);     // reopened soon after a lock-up: straight back in
+  else showResumeCard(sn);
+}
+function guardUnsaved() {
+  if(ST.roundId || (ST.holes && ST.holes.length)) return true;
+  const sn = readSnapshot();
+  if(!sn || sn.saved || !hasProgress(sn)) return true;
+  return confirm(`This phone still has an unfinished round saved (${snapScoreCount(sn)} scores).\n\nOK = carry on anyway (a round that went live stays safe in the cloud: History > Recover)\nCancel = go back and tap Resume`);
+}
+window.addEventListener('pagehide', persistRound);
+document.addEventListener('visibilitychange', () => { if(document.hidden) persistRound(); });
+
+// publish (or re-publish) the host's round so other phones can join
+function roundMeta() {
+  return {
+    course:ST.course, holeMode:ST.holeMode, format:ST.format, date:ST.date, createdAt:ST.createdAt, status:'live',
+    players:ST.players.map(p=>({name:p.name, hcp:p.hcp ?? 0, liveHcp:p.liveHcp ?? p.hcp ?? 0})), playerCount:ST.players.length
+  };
+}
+function publishRound() {
+  const meta = roundMeta(), dbScores = {}, dbTotals = {};
+  ST.players.forEach(p => { dbScores[fk(p.name)] = ST.scores[p.name]; dbTotals[fk(p.name)] = ST.totals[p.name] === undefined ? '' : ST.totals[p.name]; });
+  inflight++; updateSyncIndicator();
+  Promise.all([
+    set(ref(db, `rounds/${ST.roundId}`), { ...meta, scores:dbScores, totals:dbTotals }),
+    set(ref(db, 'activeRound'), { ...meta, roundId:ST.roundId })
+  ]).then(() => { ST.published = true; persistRound(); showSync('synced','✓ Round is live — others can join'); })
+    .catch(e => showSync('error','Could not publish round: ' + (e.code||e.message)))
+    .finally(() => { inflight--; });
+}
+async function republishRound() {
+  try {
+    const sn = await get(ref(db, `rounds/${ST.roundId}`));
+    const v = sn.val(), meta = roundMeta();
+    if(!(v && v.players && v.createdAt)) {
+      // The round's details never reached the server (re-sent scores may already be there, so write
+      // the descriptive fields one by one — never overwrite scores other phones have entered).
+      await Promise.all(Object.entries(meta).map(([k, val]) => set(ref(db, `rounds/${ST.roundId}/${k}`), val)));
+    }
+    await set(ref(db, 'activeRound'), { ...meta, roundId:ST.roundId });       // let other phones find it again
+    ST.published = true; persistRound();
+  } catch(e) { console.warn('republish failed, will retry next time the app opens', e); }
 }
 
+// ── share the scores as text (WhatsApp etc.) ───────────────────────────────────
+function buildShareText() {
+  const c = COURSES[ST.course];
+  const lines = [`⛳ ${c.name} · ${modeName(ST.holeMode)} · ${ST.date}`, ''];
+  const rows = ST.players.map(pl => {
+    const ph = getPhp(pl), sc = ST.scores[pl.name], mt = ST.totals[pl.name];
+    const anyH = sc.some(v => v!==''&&v!==null&&!isNaN(v));
+    let gross = 0, net = 0;
+    if(anyH) ST.holes.forEach((hI,li) => { const v = sc[li]; if(v===''||v===null||isNaN(v)) return; gross += parseInt(v); net += parseInt(v) - (c.si[hI] <= ph ? 1 : 0); });
+    else if(mt!==''&&mt!==null&&mt!==undefined) { gross = parseInt(mt); net = gross - ph; }
+    return { name:pl.name, gross, net, holes:sc.map(v => (v===''||v===null) ? '-' : v).join(' ') };
+  }).filter(r => r.gross > 0).sort((a,b) => a.net - b.net);
+  rows.forEach((r,i) => lines.push(`${i+1}. ${r.name} — gross ${r.gross}, net ${r.net}`));
+  lines.push('', 'Hole by hole:');
+  rows.forEach(r => lines.push(`${r.name}: ${r.holes}`));
+  return lines.join('\n');
+}
+async function shareScores() {
+  const text = buildShareText();
+  try { if(navigator.share) { await navigator.share({ text }); return; } } catch(e) { if(e && e.name === 'AbortError') return; }
+  try { await navigator.clipboard.writeText(text); alert('Scores copied — paste them into WhatsApp'); }
+  catch(e) { window.prompt('Copy these scores:', text); }
+}
 
-// Check if there's an active round in Firebase today
-// Live listener for active round — updates banner in real time as rounds start/end
+// Watches the shared "activeRound" pointer. Shows a Join button on Setup, and a warning on the
+// Scores page if this phone is scoring in a different round from the one that is live.
 function checkActiveRound() {
   onValue(ref(db, 'activeRound'), snap => {
     const data = snap.val();
+    const fresh = !!(data && data.createdAt && (Date.now() - data.createdAt) < 18*60*60*1000);
+    const live  = !!(data && fresh && data.roundId && data.status !== 'complete');
+    const other = live && data.roundId !== ST.roundId;
+    window._pendingRoundId   = other ? data.roundId : null;
+    window._pendingRoundMeta = other ? data : null;
     const banner = document.getElementById('active-round-banner');
-    // Don't show join banner if already in a round
-    if(ST.roundId) { banner.style.display='none'; return; }
-    const fresh = data && data.createdAt && (Date.now() - data.createdAt) < 18*60*60*1000;
-    const note = document.getElementById('no-live-note');
-    if(data && fresh && data.roundId && data.status !== 'complete') {
-      if(note) note.style.display='none';
-      document.getElementById('join-text').textContent =
-        `Active round: ${COURSES[data.course]?.name||data.course} · ${data.holeMode==='9f'?'Front 9':data.holeMode==='9b'?'Back 9':'18 holes'} · ${data.playerCount||'?'} players`;
+    const note   = document.getElementById('no-live-note');
+    const sb     = document.getElementById('switch-banner');
+    if(other) {
+      const label = `${COURSES[data.course]?.name||data.course} · ${data.holeMode==='9f'?'Front 9':data.holeMode==='9b'?'Back 9':'18 holes'} · ${data.playerCount||'?'} players`;
+      const midRound = !!(ST.roundId && !ST.saved);
+      document.getElementById('join-text').textContent = (midRound ? 'A different live round is running: ' : 'Active round: ') + label;
+      const jb = document.getElementById('join-btn'); jb.textContent = '📡 Join live round'; jb.disabled = false;
       banner.style.display = 'block';
-      window._pendingRoundId = data.roundId;
-      window._pendingRoundMeta = data;
-    } else {
-      banner.style.display = 'none';
-      if(note) note.style.display='block';
-      window._pendingRoundId = null;
-      window._pendingRoundMeta = null;
-    }
+      if(midRound) {
+        document.getElementById('switch-text').textContent = '⚠️ A different live round is running (' + label + '). Scores entered on this phone are NOT going to it.';
+        sb.style.display = 'block';
+      } else sb.style.display = 'none';
+    } else { banner.style.display = 'none'; if(sb) sb.style.display = 'none'; }
+    if(note) note.style.display = (!live && !ST.roundId) ? 'block' : 'none';
   }, err => console.warn('activeRound listener:', err.code));
 }
 
 async function joinActiveRound() {
-  const id = window._pendingRoundId;
-  const meta = window._pendingRoundMeta;
-  if(!id || !meta) { alert('No active round found — ask the host to start the round first'); return; }
+  const id = window._pendingRoundId, meta = window._pendingRoundMeta;
+  if(!id || !meta) { alert('No live round found — ask the host to tap Start round first'); return; }
+  if(!guardUnsaved()) return;
   const btn = document.getElementById('join-btn');
-  btn.textContent = 'Joining...';
-  btn.disabled = true;
+  btn.textContent = 'Joining…'; btn.disabled = true;
+  const reset = () => { btn.textContent = '📡 Join live round'; btn.disabled = false; };
   try {
-    const snap = await get(ref(db, `rounds/${id}`));
-    const data = snap.val();
-    if(!data) { alert('Round no longer available'); btn.textContent='📡 Join live round'; btn.disabled=false; return; }
-
-    // Load full round state from Firebase
-    ST.roundId   = id;
-    ST.isHost    = false;
-    ST.course    = meta.course   || 'gardiners';
-    ST.holeMode  = meta.holeMode || '9f';
-    ST.format    = meta.format   || 'stroke';
-    ST.date      = meta.date     || '';
-    ST.holes     = resolveHolesFor(ST.holeMode);
-    ST.players   = (meta.players || []).map(p => ({
-      name: p.name, hcp: p.hcp, liveHcp: p.liveHcp||p.hcp
-    }));
-    ST.scores = {};
-    ST.totals = {};
-    ST.saved  = false;
-
-    // Load existing scores from Firebase
-    ST.players.forEach(p => {
-      const fbScores = data.scores?.[p.name];
-      ST.scores[p.name] = Array.isArray(fbScores)
-        ? fbScores.map(v => v===null||v===undefined ? '' : v)
-        : new Array(ST.holes.length).fill('');
-      ST.totals[p.name] = data.totals?.[p.name] ?? '';
-    });
-
-    selCourse(ST.course);
-    document.getElementById('active-round-banner').style.display='none';
-    buildSC();
-    subscribeToRound(id);
-    sw('scoring');
-    document.getElementById('sc-live-label').innerHTML = '<span class="live-dot"></span> Live sync on';
-    showSync('synced', '✅ Joined live round — scores syncing');
+    const snap = await Promise.race([
+      get(ref(db, `rounds/${id}`)),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('No response from the server — check your signal and try again')), 10000))
+    ]);
+    enterRound(id, meta, snap.val() || {}, false);
+    reset();
   } catch(e) {
     console.error('Join round error:', e);
     alert('Could not join: ' + e.message);
-    btn.textContent='📡 Join live round';
-    btn.disabled=false;
+    reset();
   }
+}
+
+// Load a round (live pointer or a round fetched from the cloud) into this phone and start following it.
+function enterRound(id, meta, data, isOpen) {
+  Object.keys(DIRTY).forEach(k => delete DIRTY[k]);
+  ST.roundId  = id;
+  ST.isHost   = false;
+  ST.published = true;
+  ST.createdAt = meta.createdAt || Date.now();
+  ST.course   = meta.course   || 'gardiners';
+  ST.holeMode = meta.holeMode || '9f';
+  ST.format   = meta.format   || 'stroke';
+  ST.date     = meta.date     || '';
+  ST.holes    = resolveHolesFor(ST.holeMode);
+  ST.players  = (meta.players || []).map(p => ({ name:p.name, hcp:p.hcp ?? 0, liveHcp:p.liveHcp ?? p.hcp ?? 0 }));
+  ST.scores = {}; ST.totals = {}; ST.saved = false; ST.lastRemoteAt = 0;
+  ST.players.forEach(p => {
+    const arr = toArr(data.scores && data.scores[fk(p.name)], ST.holes.length);
+    ST.scores[p.name] = arr.map(v => (v===null||v===undefined) ? '' : v);
+    const t = data.totals && data.totals[fk(p.name)];
+    ST.totals[p.name] = (t===undefined||t===null) ? '' : t;
+  });
+  selCourse(ST.course);
+  document.getElementById('holes-sel').value  = ST.holeMode;
+  document.getElementById('format-sel').value = ST.format;
+  document.getElementById('active-round-banner').style.display = 'none';
+  document.getElementById('resume-card').style.display = 'none';
+  const sb = document.getElementById('switch-banner'); if(sb) sb.style.display = 'none';
+  renderPlayers(); buildSC();
+  subscribeToRound(id);
+  sw('scoring');
+  updateLiveLabel();
+  showSync('synced', isOpen ? '✅ Round opened from the cloud' : '✅ Joined live round — scores syncing');
+}
+
+// ── recover rounds from the cloud (History tab) ───────────────────────────────
+async function findCloudRounds() {
+  const el = document.getElementById('recover-list');
+  el.innerHTML = '<div style="font-size:13px;color:#888">Looking…</div>';
+  try {
+    const snap = await Promise.race([
+      get(ref(db, 'rounds')),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('No response — check your signal')), 12000))
+    ]);
+    const all = snap.val() || {};
+    const list = Object.entries(all).filter(([id, r]) => r && r.players && r.createdAt)
+      .sort((a, b) => b[1].createdAt - a[1].createdAt).slice(0, 12);
+    if(!list.length) { el.innerHTML = '<div style="font-size:13px;color:#888">No rounds found in the cloud.</div>'; return; }
+    el.innerHTML = list.map(([id, r]) => {
+      let n = 0;
+      (r.players||[]).forEach(p => toArr(r.scores && r.scores[fk(p.name)], 18).forEach(v => { if(v!==''&&v!==null&&v!==undefined) n++; }));
+      const when = new Date(r.createdAt).toLocaleString([], {weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
+      return `<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #f5f5f5">
+        <div style="flex:1"><div style="font-size:13px;font-weight:600">${escA(COURSES[r.course]?.name||r.course)} · ${modeName(r.holeMode)}</div>
+        <div style="font-size:11px;color:#aaa">${when} · ${r.players.length} players · ${n} scores${r.status==='complete'?' · saved':' · not saved'}</div></div>
+        <button class="btn btn-green btn-sm" onclick="openRound('${id}')">Open</button></div>`;
+    }).join('');
+  } catch(e) { el.innerHTML = `<div style="font-size:13px;color:#a32d2d">Could not look: ${escA(e.message)}</div>`; }
+}
+async function openRound(id) {
+  if(!guardUnsaved()) return;
+  try {
+    const snap = await Promise.race([
+      get(ref(db, `rounds/${id}`)),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('No response — check your signal')), 10000))
+    ]);
+    const data = snap.val();
+    if(!data) { alert('That round is no longer in the cloud'); return; }
+    enterRound(id, data, data, true);
+  } catch(e) { alert('Could not open: ' + e.message); }
 }
 
 // ── INIT ──────────────────────────────────────────────────────────────────────
@@ -861,6 +1052,7 @@ function init() {
   setInterval(testConnection, 8000);
   startSyncInterval();
   checkActiveRound();
+  tryAutoResume();
 }
 
 // ── NAV ───────────────────────────────────────────────────────────────────────
@@ -945,46 +1137,45 @@ function resolveHoles() {
 }
 
 async function startRound() {
+  if(!guardUnsaved()) return;                 // ask first, before touching anything
   ST.holes   = resolveHoles();
   ST.format  = document.getElementById('format-sel').value;
   ST.date    = document.getElementById('round-date').value;
   if(!ST.players.length){alert('Add at least one player');return;}
-  if(window._pendingRoundId && !ST.roundId) {
+  if(ST.roundId && !ST.saved) {
+    if(!confirm('This phone is already in a live round.\n\nStart a brand-new round? Everyone else will have to tap Switch / Join to follow it.')) return;
+  } else if(window._pendingRoundId) {
     if(confirm('A live round is already running.\n\nOK = join it (recommended)\nCancel = start a separate new round')) {
       joinActiveRound(); return;
     }
   }
   ST.saved   = false;
   ST.isHost  = true;
+  ST.lastRemoteAt = 0;
+  Object.keys(DIRTY).forEach(k => delete DIRTY[k]);
   ST.players.forEach(p=>{
     ST.scores[p.name] = new Array(ST.holes.length).fill('');
     ST.totals[p.name] = '';
   });
 
-  // Push round to Firebase and get a unique key
+  // Publish the round in the background — the scorecard opens straight away, even with a weak signal.
   try {
-    const newRef = push(ref(db,'rounds'));
-    ST.roundId = newRef.key;
-    const meta = {
-      course:ST.course, holeMode:ST.holeMode, format:ST.format,
-      date:ST.date, createdAt:Date.now(),
-      players:ST.players.map(p=>({name:p.name,hcp:p.hcp,liveHcp:p.liveHcp})),
-      playerCount:ST.players.length
-    };
-    await set(newRef, { ...meta, scores:ST.scores, totals:ST.totals });
-    // Set as the active round so others can join
-    await set(ref(db,'activeRound'), { ...meta, roundId:ST.roundId });
+    ST.createdAt = Date.now();
+    ST.roundId   = push(ref(db,'rounds')).key;
+    ST.published = false;
+    publishRound();
     subscribeToRound(ST.roundId);
-    document.getElementById('sc-live-label').innerHTML = '<span class="live-dot"></span> Live sync on';
-    showSync('synced','✓ Round created — others can join!');
+    updateLiveLabel();
   } catch(e) {
-    showSync('error','Offline — scoring locally only');
+    showSync('error','Could not go live — scoring on this phone only');
     ST.roundId = null;
   }
 
   buildSC(); sw('scoring');
 }
 window.startRound = startRound;
+window.resumeRound = resumeRound; window.discardSnapshot = discardSnapshot;
+window.findCloudRounds = findCloudRounds; window.openRound = openRound; window.shareScores = shareScores;
 window.joinActiveRound = joinActiveRound;
 
 // ── SCORECARD ─────────────────────────────────────────────────────────────────
@@ -1029,25 +1220,27 @@ function buildSC() {
   sis.forEach(s=>h+=`<th>${s}</th>`);
   h+=`<th></th>${showNet?'<th></th>':''}</tr></thead><tbody>`;
 
-  ST.players.forEach(pl=>{
+  ST.players.forEach((pl,pi)=>{
     const ph=getPhp(pl), sid=pl.name.replace(/\s/g,'_');
     const mt=ST.totals[pl.name]||'', hasM=mt!=='';
-    h+=`<tr><td class="lft" title="Playing HCP: ${ph}">${pl.name.length>9?pl.name.substring(0,9)+'…':pl.name}<br><span style="font-size:9px;color:#999">ph:${ph}</span></td>`;
+    h+=`<tr><td class="lft" title="Playing HCP: ${ph}">${escA(pl.name.length>9?pl.name.substring(0,9)+'…':pl.name)}<br><span style="font-size:9px;color:#999">ph:${ph}</span></td>`;
     ri.forEach(hIdx=>{
       const li=ST.holes.indexOf(hIdx), val=ST.scores[pl.name][li];
       h+=`<td><input class="score-input" type="number" min="1" max="15" value="${val||''}" placeholder="-" inputmode="numeric"
-        onchange="updS('${pl.name}',${li},this.value)"
-        onblur="updS('${pl.name}',${li},this.value)"
+        data-p="${escA(pl.name)}" data-h="${hIdx+1}"
+        onchange="updS(${pi},${li},this.value)"
+        onblur="updS(${pi},${li},this.value)"
         oninput="hlS(this,${c.par[hIdx]})"
-        aria-label="Hole ${hIdx+1} score for ${pl.name}"></td>`;
+        aria-label="Hole ${hIdx+1} score for ${escA(pl.name)}"></td>`;
     });
     h+=`<td style="padding:3px"><input class="score-input tot-input" type="number" min="1" max="200"
       value="${hasM?mt:''}" placeholder="—" inputmode="numeric"
       style="width:38px;font-weight:700;font-size:12px;${hasM?'border-color:#1a5c2a;background:#f0f9f2;':''}"
-      onchange="updTotal('${pl.name}',this.value,this)"
-      onblur="updTotal('${pl.name}',this.value,this)"
-      oninput="updTotal('${pl.name}',this.value,this)"
-      aria-label="Total score for ${pl.name}"></td>`;
+      data-p="${escA(pl.name)}"
+      onchange="updTotal(${pi},this.value,this,true)"
+      onblur="updTotal(${pi},this.value,this,true)"
+      oninput="updTotal(${pi},this.value,this,false)"
+      aria-label="Total score for ${escA(pl.name)}"></td>`;
     if(showNet) h+=`<td id="net-${sid}" style="font-weight:700;color:#1a5c2a">—</td>`;
     h+=`</tr>`;
     if(ST.format==='stableford'){
@@ -1069,22 +1262,34 @@ function buildSC() {
   updTotals();
 }
 
-function updS(name, li, val) {
-  ST.scores[name][li] = val ? parseInt(val) : '';
-  if(val) ST.totals[name] = '';
+function updS(pi, li, val) {
+  const pl = ST.players[pi]; if(!pl) return;
+  const name = pl.name;
+  const n = parseInt(val), nv = (val === '' || val == null || isNaN(n)) ? '' : n;
+  if(ST.scores[name][li] === nv) return;          // nothing changed (keyboard dismissed, duplicate event) — never write
+  ST.scores[name][li] = nv;
+  if(nv !== '' && ST.totals[name] !== '' && ST.totals[name] !== undefined) { ST.totals[name] = ''; syncTotal(name); }
   updTotals(); updLiveHcp();
-  syncScore(name, li);       // write this one score immediately
+  syncScore(name, li);
   checkAutoAdvanceHole();
 }
 window.updS = updS;
 
-function updTotal(name, val, input) {
-  const v = val ? parseInt(val) : '';
-  ST.totals[name] = v;
+function updTotal(pi, val, input, commit) {
+  const pl = ST.players[pi]; if(!pl) return;
+  const name = pl.name;
+  const n = parseInt(val);
+  let v = (val === '' || val == null || isNaN(n)) ? '' : n;
   if(v){ input.style.borderColor='#1a5c2a'; input.style.background='#f0f9f2'; }
   else { input.style.borderColor='#ddd';    input.style.background='white'; }
+  if(!commit) return;                              // typing: only style it, save when finished
+  const holeSum = ST.scores[name].reduce((a,s)=>a+((s!==''&&s!==null&&!isNaN(s))?parseInt(s):0),0);
+  const anyH = ST.scores[name].some(s=>s!==''&&s!==null&&!isNaN(s));
+  if(anyH && v === holeSum) v = '';                // that's just the auto-sum being tapped past, not a typed total
+  if(ST.totals[name] === v) return;
+  ST.totals[name] = v;
   updTotals(); updLiveHcp();
-  syncTotal(name);           // write total immediately
+  syncTotal(name);
 }
 window.updTotal = updTotal;
 
@@ -1100,6 +1305,7 @@ function hlS(input,par) {
 window.hlS = hlS;
 
 function updTotals() {
+  persistRound();
   const c=COURSES[ST.course], is18=ST.holeMode==='18';
   ST.players.forEach(pl=>{
     const sid=pl.name.replace(/\s/g,'_'), ph=getPhp(pl);
@@ -1115,7 +1321,7 @@ function updTotals() {
         const pts=Math.max(0,c.par[hIdx]-(parseInt(s)-str)+2); sf+=pts;
         if(ST.format==='stableford'){const el=document.getElementById(`sfp-${sid}-${li}`);if(el)el.textContent=pts>0?pts:'—';}
       });
-      const ti=document.querySelector(`input.tot-input[aria-label="Total score for ${pl.name}"]`);
+      const ti=findTot(pl.name);
       if(ti&&!mt){ti.value=gross||'';ti.style.borderColor='#ddd';ti.style.background='white';}
     } else if(mt!==''&&mt!==null){
       gross=parseInt(mt); net=gross-ph;
@@ -1165,6 +1371,7 @@ function updLiveHcp() {
 }
 
 function resetScores() {
+  if(ST.roundId && !confirm('Clear ALL scores for every player in this live round?')) return;
   ST.players.forEach(p=>{ST.scores[p.name]=new Array(ST.holes.length).fill('');ST.totals[p.name]='';});
   buildSC(); pushToFirebase();
 }
@@ -1257,13 +1464,19 @@ async function saveHistory() {
     })
   };
 
-  // Save to Firebase permanently
+  // Save to Firebase permanently. Keyed by the live round id so two phones saving the same round
+  // overwrite each other instead of creating duplicates.
+  ST.saved = true; updateSaveButton(); persistRound();
+  const hkey = ST.roundId || String(entry.id);
   try {
     showSync('syncing','Saving round to cloud...');
-    await set(ref(db,`history/${entry.id}`), entry);
+    await Promise.race([
+      set(ref(db,`history/${hkey}`), entry),
+      new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout')),8000))
+    ]);
     showSync('synced','✅ Round saved to cloud permanently');
   } catch(e) {
-    showSync('error','Cloud save failed — saved locally only');
+    showSync('error', e.message==='timeout' ? 'No signal — round will upload when you are back online' : 'Cloud save failed — saved on this phone');
     console.warn('Firebase history save failed:', e);
   }
 
@@ -1273,8 +1486,9 @@ async function saveHistory() {
 
   ST.saved=true; updateSaveButton();
   if(ST.roundId) {
-    set(ref(db,`rounds/${ST.roundId}/status`),'complete').catch(()=>{});
-    if(ST.isHost) set(ref(db,'activeRound/status'),'complete').catch(()=>{});
+    const rid = ST.roundId;
+    set(ref(db,`rounds/${rid}/status`),'complete').catch(()=>{});
+    get(ref(db,'activeRound')).then(sn=>{ const a=sn.val(); if(a && a.roundId===rid) set(ref(db,'activeRound/status'),'complete'); }).catch(()=>{});
   }
   renderHcp(); sw('history');
 }
